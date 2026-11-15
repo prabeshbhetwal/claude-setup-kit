@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""mjudge: one judgment over media files with Gemini Decision 1, plus Jev on PNG/JPG for comparison.
+
+  mjudge noul   "Does the photo show visible damage?"            a.jpg b.png
+  mjudge choice "What is this clip?" -o tool="names a tool or repo" -o demo="animation demo" clip.mp4
+  mjudge score  "How readable is this page?" -l "unreadable" -l "hard" -l "clear" scan.pdf
+
+Each file is one item. Gemini Decision 1 judges every file (image, video, audio, PDF).
+PNG/JPG files also go to Jev; both answers are printed and a disagreement is flagged,
+so Claude looks at that file itself. --only gemini|jev runs one model.
+Every run is logged (file hash, not content) to ~/.claude/jev/media-decisions.jsonl.
+Exit 0 ok; 2 every model failed or input refused. Output is triage, never approval.
+Free-tier Gemini may use inputs for training: never send client-confidential media without consent.
+"""
+import argparse
+import base64
+import concurrent.futures
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import mimetypes
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+from pathlib import Path
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/decisions"
+GEMINI_MODEL = "gemini-decision-1"
+LOG = Path.home() / ".claude/jev/media-decisions.jsonl"
+ENV_FILE = Path.home() / ".config/watch/.env"  # same key file gemini-video uses
+MIME = {  # block type per MIME, from the Decisions API input table
+    "image": {"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif", "image/gif", "image/bmp", "image/tiff"},
+    "audio": {"audio/wav", "audio/mp3", "audio/mpeg", "audio/aiff", "audio/aac", "audio/ogg", "audio/flac", "audio/m4a",
+              "audio/opus", "audio/webm"},
+    "video": {"video/mp4", "video/mpeg", "video/mov", "video/quicktime", "video/avi", "video/webm", "video/wmv",
+              "video/x-flv", "video/3gpp"},
+    "document": {"application/pdf"},
+}
+EXTRA = {".m4a": "audio/m4a", ".mov": "video/mov", ".heic": "image/heic", ".webp": "image/webp", ".opus": "audio/opus",
+         ".wav": "audio/wav", ".mp3": "audio/mp3", ".aac": "audio/aac", ".flac": "audio/flac", ".ogg": "audio/ogg"}
+JEV_FORMATS = {"image/png": "png", "image/jpeg": "jpg"}
+JEV_MIN, JEV_MAX = 280, 1568  # Jev rejects images with a side outside this range (docs.typesafe.ai/images#limits)
+
+
+def fit_for_jev(path: Path, data: bytes) -> bytes:
+    """Jev never resizes; scale a temp copy with macOS sips so each side lands in 280..1568."""
+    import math
+    import subprocess
+    import tempfile
+    out = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)], capture_output=True, text=True)
+    dims = [int(l.split(":")[1]) for l in out.stdout.splitlines() if "pixel" in l]
+    if len(dims) != 2:
+        raise Unavailable(f"jev: cannot read size of {path.name}")
+    w, h = dims
+    if JEV_MIN <= w <= JEV_MAX and JEV_MIN <= h <= JEV_MAX:
+        return data
+    scale = JEV_MAX / max(w, h) if max(w, h) > JEV_MAX else JEV_MIN / min(w, h)
+    nw, nh = math.ceil(w * scale), math.ceil(h * scale)
+    if not (JEV_MIN <= nw <= JEV_MAX and JEV_MIN <= nh <= JEV_MAX):
+        raise Unavailable(f"jev: {w}x{h} aspect ratio cannot fit 280..1568 px")
+    with tempfile.TemporaryDirectory() as tmp:
+        dst = Path(tmp) / path.name
+        r = subprocess.run(["sips", "-z", str(nh), str(nw), str(path), "--out", str(dst)], capture_output=True)
+        if r.returncode != 0 or not dst.is_file():
+            raise Unavailable(f"jev: resize of {path.name} failed")
+        return dst.read_bytes()
+
+
+def load_jev():
+    """Reuse jev's key lookup, TLS, retries and secret filter instead of copying them."""
+    loader = importlib.machinery.SourceFileLoader("jev_cli", str(Path.home() / ".local/bin/jev"))
+    spec = importlib.util.spec_from_loader("jev_cli", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+JEV = load_jev()
+
+
+class Unavailable(Exception):
+    pass
+
+
+def gemini_key() -> str:
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key and ENV_FILE.is_file():
+        for line in ENV_FILE.read_text().splitlines():
+            name, _, val = line.partition("=")
+            if name.strip() == "GEMINI_API_KEY":
+                key = val.strip().strip('"').strip("'")
+    return key
+
+
+def media_type(path: Path) -> tuple[str, str]:
+    mime = EXTRA.get(path.suffix.lower()) or mimetypes.guess_type(path.name)[0] or ""
+    if mime == "video/quicktime":
+        mime = "video/mov"
+    for block, mimes in MIME.items():
+        if mime in mimes:
+            return block, mime
+    raise Unavailable(f"{path.name}: unsupported type {mime or path.suffix}")
+
+
+def criteria(kind: str, opts: dict, levels: list):
+    return opts if kind == "choice" else levels if kind == "score" else None
+
+
+def ask_gemini(kind, text, path, data, block, mime, context, opts, levels):
+    key = gemini_key()
+    if not key:
+        raise Unavailable(f"no GEMINI_API_KEY (env or {ENV_FILE})")
+    limit = 50 if block == "document" else 100
+    if len(data) * 4 / 3 > limit * 1024 * 1024:
+        # shortcut: inline only; files over the inline cap need the Files API upload, add it when one shows up
+        raise Unavailable(f"{path.name} over the {limit} MB inline limit")
+    inp = []
+    if context:
+        inp.append({"type": "text", "text": context + "\n"})
+    inp.append({"type": block, "data": base64.b64encode(data).decode(), "mime_type": mime})
+    q = {"type": kind, "instructions": text}
+    if criteria(kind, opts, levels) is not None:
+        q["criteria"] = criteria(kind, opts, levels)
+    body = {"model": GEMINI_MODEL, "input": inp, "questions": {"q": q}}
+    req = urllib.request.Request(GEMINI_URL, data=json.dumps(body).encode(), method="POST",
+                                 headers={"x-goog-api-key": key, "Content-Type": "application/json"})
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=180, context=JEV.TLS) as res:
+                out = json.load(res)
+            return out["answers"]["q"], out.get("usage", {}).get("total_input_tokens", 0)
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503) and attempt < 3:
+                time.sleep(2 ** attempt)
+                continue
+            raise Unavailable(f"gemini HTTP {e.code}: {e.read().decode(errors='replace')[:200]}")
+        except (urllib.error.URLError, TimeoutError) as e:
+            if attempt < 3:
+                time.sleep(2 ** attempt)
+                continue
+            raise Unavailable(f"gemini: {str(e)[:200]}")
+    raise Unavailable("gemini retries exhausted")
+
+
+def ask_jev(kind, text, path, data, mime, context, opts, levels):
+    data = fit_for_jev(path, data)
+    ref = f"img-{uuid.uuid4().hex[:12]}"
+    state = {"item": ref}
+    if context:
+        state["context"] = context
+    q = {"type": kind, "instructions": f"{text}\nJudge the image `item`."}
+    if criteria(kind, opts, levels) is not None:
+        q["criteria"] = criteria(kind, opts, levels)
+    body = {"model": JEV.MODEL, "state": state, "questions": {"q": q},
+            "assets": {ref: {"type": "image", "format": JEV_FORMATS[mime], "data_base64": base64.b64encode(data).decode()}}}
+    try:
+        out = JEV.call(body)  # jev's call() exits 2 on failure; turn that into a per-model error here
+    except SystemExit:
+        raise Unavailable("jev failed (see stderr above)")
+    return out["answers"]["q"], int((out.get("usage") or {}).get("input_tokens") or 0)
+
+
+def value(kind, a):
+    return JEV.value(kind, a)
+
+
+def disagree(kind, a, b) -> bool:
+    va, vb = value(kind, a), value(kind, b)
+    if kind == "choice":
+        return va != vb
+    if kind == "noul":
+        return (va >= 0.5) != (vb >= 0.5) or abs(va - vb) > 0.3
+    return abs(va - vb) >= 1.0  # score: expected level index
+
+
+def fmt(kind, a) -> str:
+    v = value(kind, a)
+    shown = f"{v:.2f}" if isinstance(v, float) else str(v)
+    conf = a.get("confidence")
+    return shown + (f" (conf {conf:.2f})" if isinstance(conf, (int, float)) else "")
+
+
+def judge_file(args, path: Path) -> dict:
+    rec = {"file": path.name, "results": {}, "errors": {}}
+    try:
+        data = path.read_bytes()
+        block, mime = media_type(path)
+    except (OSError, Unavailable) as e:
+        rec["errors"]["input"] = str(e)
+        return rec
+    rec.update(sha256=hashlib.sha256(data).hexdigest()[:16], mime=mime, bytes=len(data))
+    def timed(fn, *a):
+        t0 = time.time()
+        ans, tokens = fn(*a)
+        return ans, tokens, round(time.time() - t0, 2)
+
+    jobs = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        if args.only in (None, "gemini"):
+            jobs["gemini"] = pool.submit(timed, ask_gemini, args.kind, args.question, path, data, block, mime,
+                                         args.context, args.opts, args.levels)
+        if args.only in (None, "jev") and mime in JEV_FORMATS:
+            jobs["jev"] = pool.submit(timed, ask_jev, args.kind, args.question, path, data, mime, args.context,
+                                      args.opts, args.levels)
+        for name, fut in jobs.items():
+            try:
+                ans, tokens, secs = fut.result()
+                rec["results"][name] = {"answer": ans, "tokens": tokens, "secs": secs}
+            except Unavailable as e:
+                rec["errors"][name] = str(e)
+    g, j = rec["results"].get("gemini"), rec["results"].get("jev")
+    if g and j:
+        rec["disagree"] = disagree(args.kind, g["answer"], j["answer"])
+    return rec
+
+
+def main(argv=None) -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("kind", choices=["noul", "choice", "score"])
+    p.add_argument("question")
+    p.add_argument("files", nargs="+")
+    p.add_argument("-o", "--opt", action="append", default=[], help="choice option: name=description")
+    p.add_argument("-l", "--level", action="append", default=[], help="score level, lowest first")
+    p.add_argument("--context", default="", help="text sent with every file")
+    p.add_argument("--only", choices=["gemini", "jev"], help="run one model")
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args(argv)
+    args.opts = dict(o.split("=", 1) for o in args.opt)
+    args.levels = args.level
+    if args.kind == "choice" and len(args.opts) < 2:
+        p.error("choice needs at least two -o name=description")
+    if args.kind == "score" and len(args.levels) < 2:
+        p.error("score needs at least two -l levels")
+    if JEV.SECRET.search(args.question + " " + args.context + " " + " ".join(args.opt + args.level)):
+        print("mjudge refused: question or context looks like it holds a credential", file=sys.stderr)
+        sys.exit(2)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        recs = list(pool.map(lambda f: judge_file(args, Path(f).expanduser()), args.files))
+
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as fh:
+        for r in recs:
+            fh.write(json.dumps({"ts": time.time(), "kind": args.kind, "question": args.question, **r}) + "\n")
+
+    if args.json:
+        print(json.dumps(recs, indent=1))
+    else:
+        for r in recs:
+            parts = [f"{n} {fmt(args.kind, v['answer'])}" for n, v in r["results"].items()]
+            parts += [f"{n} ERROR {e}" for n, e in r["errors"].items()]
+            flag = "  << DISAGREE: look at it yourself" if r.get("disagree") else ""
+            print(f"{r['file']}: " + " | ".join(parts) + flag)
+    if not any(r["results"] for r in recs):
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

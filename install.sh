@@ -1,0 +1,362 @@
+#!/bin/bash
+# claude-setup-kit installer. macOS. Idempotent: a second run changes nothing that is already in place.
+#
+#   ./install.sh                      explain every tool, then ask which to install (recommended)
+#   ./install.sh --yes                no questions: core tier only (no keys, no paid services)
+#   ./install.sh --tiers core,memory,routing,judge,deliberation   (no questions)
+#   ./install.sh --only caveman,rtk   just these tools (dependencies are added)
+#   ./install.sh --list               print the catalogue and exit
+# Other options: --skip id,id  --caveman-mode lite|full|ultra  --model-selector-zip PATH
+#
+# Never overwrites: settings.json is merged (backup first); your own CLAUDE.md, guides and agents are
+# kept, and the kit's version is written next to them as *.kit-new. Third-party plugins and CLIs are
+# installed from their own sources; nothing third-party is bundled here.
+set -u
+KIT="$(cd "$(dirname "$0")" && pwd)"
+CL="$HOME/.claude"
+BIN="$HOME/.local/bin"
+TS=$(date +%Y%m%d-%H%M%S)
+CAT="$KIT/lib/catalog.txt"
+TIERS_ALL="core memory routing judge deliberation"
+SELECTED=" "
+TODO=""
+FAILED=""
+MODE=ask; TIERS=""; ONLY=""; SKIP=""; MS_ZIP=""; CAVEMODE=""
+
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '  ok    %s\n' "$*"; }
+info() { printf '  ..    %s\n' "$*"; }
+warn() { printf '  WARN  %s\n' "$*"; }
+fail() { printf '  FAIL  %s\n' "$*"; FAILED="$FAILED  - $*
+"; }
+todo() { TODO="$TODO$1
+"; }
+has()  { case "$SELECTED" in *" $1 "*) return 0 ;; esac; return 1; }
+add()  { has "$1" || SELECTED="$SELECTED$1 "; }
+short() { local t="~"; printf '%s' "${1/#$HOME/$t}"; }
+drop() { SELECTED=$(printf '%s' "$SELECTED" | sed "s/ $1 / /"); }
+field() { awk -F'|' -v id="$1" -v n="$2" '$1==id {print $n}' "$CAT"; }
+tier_ids() { awk -F'|' -v t="$1" '!/^#/ && $2==t {print $1}' "$CAT"; }
+csv() { printf '%s' "$1" | tr ',' ' '; }
+
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+
+val() { [ -n "${2:-}" ] && [ "${2#--}" = "$2" ] || { say "$1 needs a value (see --help)"; exit 2; }; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yes|-y) MODE=yes ;;
+    --tiers) val "$1" "${2:-}"; TIERS=$(csv "$2"); MODE=yes; shift ;;
+    --only) val "$1" "${2:-}"; ONLY=$(csv "$2"); shift ;;
+    --skip) val "$1" "${2:-}"; SKIP=$(csv "$2"); shift ;;
+    --caveman-mode) val "$1" "${2:-}"; CAVEMODE=$2; shift ;;
+    --model-selector-zip) val "$1" "${2:-}"; MS_ZIP=$2; shift ;;
+    --list) awk -F'|' '!/^#/ {printf "%-15s %-13s %s\n    %s\n", $1, $2, $3, $5}' "$CAT"; exit 0 ;;
+    -h|--help) usage ;;
+    *) say "Unknown option: $1"; exit 2 ;;
+  esac
+  shift
+done
+
+# Questions come from the terminal even when stdin is a pipe; no terminal -> defaults.
+ask() { # ask "question" default(y|n) -> 0 for yes
+  local a d=$2
+  if [ "$MODE" = yes ] || ! { : </dev/tty; } 2>/dev/null; then [ "$d" = y ]; return; fi
+  printf '%s [%s] ' "$1" "$([ "$d" = y ] && echo Y/n || echo y/N)"
+  read -r a </dev/tty
+  a=${a:-$d}
+  case "$a" in y|Y|yes) return 0 ;; esac
+  return 1
+}
+
+describe() {
+  printf '\n  %s  (%s)\n' "$(field "$1" 3)" "$(field "$1" 4)"
+  printf '    What:  %s\n    Helps: %s\n    Needs: %s\n' "$(field "$1" 5)" "$(field "$1" 6)" "$(field "$1" 7)"
+}
+
+tier_title() {
+  case "$1" in
+    core) echo "CORE: token savers + safety. No keys, no accounts, no paid services." ;;
+    memory) echo "MEMORY: remembers decisions across sessions. Some need an account or an API key." ;;
+    routing) echo "MODEL ROUTING: cheapest model and effort per task, lean helper agents." ;;
+    judge) echo "JUDGE TOOLS: fast external yes/no triage. Need paid or free API keys." ;;
+    deliberation) echo "DELIBERATION: second opinions from GPT, Gemini, Grok or OpenRouter. Needs at least one provider." ;;
+  esac
+}
+
+# ---------------------------------------------------------------- selection
+if [ -n "$ONLY" ]; then
+  for id in $ONLY; do [ -n "$(field "$id" 1)" ] && add "$id" || { say "Unknown tool: $id (see --list)"; exit 2; }; done
+elif [ "$MODE" = yes ]; then
+  for t in ${TIERS:-core}; do
+    case " $TIERS_ALL " in *" $t "*) ;; *) say "Unknown tier: $t (tiers: $TIERS_ALL)"; exit 2 ;; esac
+    for id in $(tier_ids "$t"); do add "$id"; done
+  done
+else
+  say "claude-setup-kit: each tool is explained below; you choose what to install."
+  say "Nothing is changed until all questions are answered."
+  for t in $TIERS_ALL; do
+    say ""; say "=== $(tier_title "$t")"
+    for id in $(tier_ids "$t"); do describe "$id"; done
+    say ""
+    d=n; [ "$t" = core ] && d=y
+    if ask "Install the whole $t tier?" "$d"; then
+      for id in $(tier_ids "$t"); do add "$id"; done
+    elif ask "  Choose $t tools one by one instead?" n; then
+      for id in $(tier_ids "$t"); do ask "    Install $(field "$id" 3)?" y && add "$id"; done
+    fi
+  done
+fi
+# The Model Selector pack is not redistributable: only from a zip the person supplies.
+if has model-selector && [ -z "$MS_ZIP" ]; then
+  if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
+    printf '  Path to your Model Selector zip (Enter to skip): '; read -r MS_ZIP </dev/tty
+  fi
+  [ -z "$MS_ZIP" ] && { drop model-selector; info "Model Selector pack skipped (no zip given)"; }
+fi
+# Skips first: a skipped tool also removes whatever needs it, so dependencies never pull it back in.
+for id in $SKIP; do
+  [ -n "$(field "$id" 1)" ] || { say "Unknown tool in --skip: $id (see --list)"; exit 2; }
+  drop "$id"
+  for pair in indexes:codegraph indexes:graphify mjudge:jev model-selector:routing; do
+    a=${pair%%:*}; b=${pair#*:}
+    [ "$b" = "$id" ] && has "$a" && { drop "$a"; SKIP="$SKIP $a"; info "$(field "$a" 3) skipped too (needs $(field "$b" 3))"; }
+  done
+done
+# Dependencies.
+for pair in indexes:codegraph indexes:graphify mjudge:jev model-selector:routing; do
+  a=${pair%%:*}; b=${pair#*:}
+  has "$a" && ! has "$b" && { add "$b"; info "$(field "$a" 3) needs $(field "$b" 3): added"; }
+done
+[ "$SELECTED" = " " ] && { say "Nothing selected. Nothing changed."; exit 0; }
+if has caveman && [ -z "$CAVEMODE" ]; then
+  CAVEMODE=ultra
+  if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
+    printf '\n  Caveman strength: lite (light trim), full, ultra (fragments only). [ultra] '; read -r CAVEMODE </dev/tty
+    CAVEMODE=${CAVEMODE:-ultra}
+  fi
+fi
+case "$CAVEMODE" in ''|lite|full|ultra) ;; *) info "Caveman mode '$CAVEMODE' not known: using ultra"; CAVEMODE=ultra ;; esac
+
+say ""; say "Installing:$SELECTED"
+
+# ---------------------------------------------------------------- preflight (before any change)
+missing=""; BREWHINT=""
+if [ "$(uname -s)" != Darwin ]; then
+  say "This kit is tested on macOS only (it uses the Keychain, osascript, BSD stat and Homebrew)."
+  say "Set KIT_ALLOW_NON_MAC=1 to try anyway."; [ "${KIT_ALLOW_NON_MAC:-}" = 1 ] || exit 1
+fi
+need() { command -v "$1" >/dev/null 2>&1 || missing="$missing
+  - $1: $2"; }
+# /usr/bin/python3 and git exist on every Mac but are stubs until Command Line Tools are installed.
+python3 -c pass >/dev/null 2>&1 && git --version >/dev/null 2>&1 || missing="$missing
+  - Xcode Command Line Tools (python3, git): xcode-select --install"
+for id in caveman adhd ponytail context-mode codegraph supermemory cognee agentmemory remember model-selector deliberation; do
+  has $id && { need claude "install Claude Code: https://docs.claude.com/en/docs/claude-code/setup"; break; }
+done
+command -v brew >/dev/null 2>&1 || BREWHINT=" (no Homebrew yet: install it from https://brew.sh, or use the tool's own installer)"
+for id in context-mode codegraph agentmemory; do has $id && { need node "install Node.js 20+: brew install node"; break; }; done
+has codegraph && need npm "comes with Node.js: brew install node"
+if has graphify && ! command -v uv >/dev/null 2>&1 && ! command -v pipx >/dev/null 2>&1; then
+  missing="$missing
+  - uv or pipx: brew install uv"
+fi
+if has rtk && ! command -v rtk >/dev/null 2>&1 && [ ! -x "$BIN/rtk" ] && ! command -v brew >/dev/null 2>&1; then
+  need curl "needed for the RTK install script"
+fi
+if [ -n "$missing" ]; then
+  say "Missing before anything can be installed:$missing"
+  case "$missing" in *"brew install"*) [ -n "$BREWHINT" ] && say "  Note: hints say brew install$BREWHINT" ;; esac
+  say "Install these, then run ./install.sh again. Nothing was changed."
+  exit 1
+fi
+mkdir -p "$CL/hooks" "$CL/agents" "$CL/guides" "$CL/rules" "$BIN" "$CL/kit"; export KIT_RTK=rtk
+
+# ---------------------------------------------------------------- helpers
+# copy_file SRC DST exec|data replace|keep
+#   replace: differing DST is backed up to DST.bak-kit-<time>, then replaced (kit-owned scripts)
+#   keep:    differing DST is left alone; the kit's copy goes to DST.kit-new (your own docs)
+copy_file() {
+  local src=$1 dst=$2 kind=$3 pol=$4
+  if [ -f "$dst" ] && cmp -s "$src" "$dst"; then ok "unchanged $(short "$dst")"; return; fi
+  if [ -f "$dst" ] && [ "$pol" = keep ]; then
+    cp "$src" "$dst.kit-new"; warn "kept your $(short "$dst"); kit version at $(short "$dst").kit-new"
+    todo "Compare $(short "$dst") with $(short "$dst").kit-new and merge what you want."
+    return
+  fi
+  [ -f "$dst" ] && cp -p "$dst" "$dst.bak-kit-$TS"
+  cp "$src" "$dst"; [ "$kind" = exec ] && chmod +x "$dst"
+  ok "installed $(short "$dst")"
+}
+
+# Exact-match lookups on the CLI's JSON output (the human-readable list is not a stable format).
+mp_has() { claude plugin marketplace list --json 2>/dev/null |
+  python3 -c 'import json,sys; sys.exit(0 if any(m.get("name") == sys.argv[1] for m in json.load(sys.stdin)) else 1)' "$1"; }
+pl_state() { claude plugin list --json 2>/dev/null |   # prints enabled | disabled | (nothing)
+  python3 -c 'import json,sys; print(next(("enabled" if p.get("enabled") else "disabled" for p in json.load(sys.stdin) if p.get("id") == sys.argv[1]), ""))' "$1"; }
+plugin() { # plugin MARKETPLACE_SOURCE MARKETPLACE_NAME PLUGIN
+  local src=$1 mp=$2 id="$3@$2" st
+  if ! mp_has "$mp"; then
+    info "adding marketplace $src"
+    claude plugin marketplace add "$src" >/dev/null 2>&1 || { fail "marketplace add $src"; return 1; }
+  fi
+  st=$(pl_state "$id")
+  case "$st" in
+    enabled) ok "plugin $id already installed"; return 0 ;;
+    disabled) warn "plugin $id is installed but disabled; left as you set it (claude plugin enable $id)"; return 0 ;;
+  esac
+  if claude plugin install "$id" --scope user >/dev/null 2>&1; then ok "plugin $id"
+  else fail "plugin install $id (run: claude plugin install $id)"; return 1; fi
+}
+
+# ---------------------------------------------------------------- rules + guides (first: later tools append to CLAUDE.md)
+if has rules; then
+  rendered=$(mktemp)
+  python3 - "$KIT/files/CLAUDE.template.md" "$rendered" $SELECTED $(cat "$CL/kit/installed" 2>/dev/null) <<'PY'
+import re, sys
+src, out, keep = sys.argv[1], sys.argv[2], set(sys.argv[3:])
+text = open(src).read()
+# Drop each <!-- kit:ID --> block whose tool was not installed; keep the rest without the markers.
+text = re.sub(r"<!-- kit:([\w-]+) -->\n(.*?)<!-- /kit:\1 -->\n",
+              lambda m: m.group(2) if m.group(1) in keep else "", text, flags=re.S)
+open(out, "w").write(text)
+PY
+  # Current when: the kit's render is the same as last run (your edits since then are yours), or the file starts with
+  # the render (tools such as graphify append their own section). Otherwise copy_file keeps yours and writes .kit-new.
+  prev="$CL/kit/CLAUDE.rendered.md"
+  if [ -f "$CL/CLAUDE.md" ] && { cmp -s "$rendered" "$prev" ||
+       head -c "$(wc -c < "$rendered" | tr -d ' ')" "$CL/CLAUDE.md" | cmp -s - "$rendered"; }; then ok "unchanged ~/.claude/CLAUDE.md"
+  else copy_file "$rendered" "$CL/CLAUDE.md" data keep; fi
+  cp "$rendered" "$prev"
+  grep -q '{{' "$CL/CLAUDE.md" 2>/dev/null &&
+    todo "Fill the {{...}} placeholders in ~/.claude/CLAUDE.md (Identity section): your name, place and time zone, form of address, English variant."
+  for f in coding connectors-and-skills knowledge-and-projects token-tools; do
+    copy_file "$KIT/files/guides/$f.md" "$CL/guides/$f.md" data keep
+  done
+  has routing && copy_file "$KIT/files/guides/agents-and-models.md" "$CL/guides/agents-and-models.md" data keep
+  copy_file "$KIT/files/rules/coding-hard-rules.md" "$CL/rules/coding-hard-rules.md" data keep
+fi
+
+# ---------------------------------------------------------------- core
+if has caveman; then
+  plugin JuliusBrussee/caveman caveman caveman
+  if [ ! -f "$HOME/.config/caveman/config.json" ]; then
+    mkdir -p "$HOME/.config/caveman"
+    printf '{\n  "defaultMode": "%s"\n}\n' "$CAVEMODE" > "$HOME/.config/caveman/config.json"; ok "Caveman default mode: $CAVEMODE"
+  else ok "kept existing ~/.config/caveman/config.json"; fi
+fi
+if has adhd; then
+  plugin ayghri/i-have-adhd i-have-adhd i-have-adhd && touch "$CL/.i-have-adhd-always" && ok "i-have-adhd always on (delete ~/.claude/.i-have-adhd-always to turn off)"
+fi
+has ponytail && plugin DietrichGebert/ponytail ponytail ponytail
+has context-mode && plugin mksglu/context-mode context-mode context-mode
+if has rtk; then
+  if command -v rtk >/dev/null 2>&1 || [ -x "$BIN/rtk" ]; then ok "rtk already installed"
+  elif [ "${KIT_RTK_METHOD:-}" != script ] && command -v brew >/dev/null 2>&1; then
+    brew install rtk >/dev/null 2>&1 && ok "rtk (Homebrew)" || fail "brew install rtk (run it yourself to see why)"
+  else
+    # Upstream's documented installer (github.com/rtk-ai/rtk). RTK_EDITION=oss gives the Apache-2.0-only build.
+    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh >/dev/null 2>&1 \
+      && ok "rtk (install script)" || fail "rtk install script"
+  fi
+  # The hook gets rtk's absolute path: Claude Code's hook PATH may not include ~/.local/bin or Homebrew.
+  KIT_RTK=$(command -v rtk 2>/dev/null || { [ -x "$BIN/rtk" ] && echo "$BIN/rtk"; } || echo rtk); export KIT_RTK
+fi
+if has codegraph; then
+  if [ -x "$BIN/codegraph" ]; then ok "codegraph already installed"
+  else npm install -g --prefix "$HOME/.local" @colbymchenry/codegraph >/dev/null 2>&1 && ok "codegraph (npm)" || fail "npm install @colbymchenry/codegraph"; fi
+  if claude mcp get codegraph >/dev/null 2>&1; then ok "codegraph MCP server already registered"
+  else claude mcp add -s user codegraph -- "$BIN/codegraph" serve --mcp >/dev/null 2>&1 && ok "codegraph MCP server registered" || fail "claude mcp add codegraph"; fi
+fi
+if has graphify; then
+  if [ -x "$BIN/graphify" ]; then ok "graphify already installed"
+  elif command -v uv >/dev/null 2>&1; then uv tool install graphifyy >/dev/null 2>&1 && ok "graphify (uv)" || fail "uv tool install graphifyy"
+  else pipx install graphifyy >/dev/null 2>&1 && ok "graphify (pipx)" || fail "pipx install graphifyy"; fi
+  if [ -f "$CL/skills/graphify/SKILL.md" ]; then ok "graphify skill already installed"
+  elif [ -x "$BIN/graphify" ]; then "$BIN/graphify" install --platform claude >/dev/null 2>&1 && ok "graphify skill" || fail "graphify install --platform claude"; fi
+fi
+if has safety; then
+  copy_file "$KIT/files/bin/trashmv" "$BIN/trashmv" exec replace
+  copy_file "$KIT/files/hooks/block-rm.py" "$CL/hooks/block-rm.py" exec replace
+fi
+if has indexes; then
+  copy_file "$KIT/files/hooks/ensure-indexes.sh" "$CL/hooks/ensure-indexes.sh" exec replace
+  copy_file "$KIT/files/hooks/codegraph-gate.py" "$CL/hooks/codegraph-gate.py" exec replace
+  copy_file "$KIT/files/hooks/kit-timeout" "$CL/hooks/kit-timeout" exec replace
+fi
+if has measure; then
+  for f in token-scorecard.py token-compare.py token-daily.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
+  mkdir -p "$CL/cache/token-compare"
+  [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
+fi
+
+# ---------------------------------------------------------------- memory
+if has supermemory; then
+  plugin supermemoryai/claude-supermemory supermemory-plugins supermemory &&
+    todo "Supermemory: start Claude Code and complete the Supermemory sign-in it opens (or set SUPERMEMORY_CC_API_KEY, see .env.example)."
+fi
+if has cognee; then
+  plugin topoteretes/cognee-integrations cognee cognee-memory &&
+    todo "Cognee: put LLM_PROVIDER, LLM_MODEL and LLM_API_KEY in ~/.cognee/.env (see .env.example). It builds its local server on the first session; that takes a few minutes."
+fi
+if has agentmemory; then
+  plugin rohitg00/agentmemory agentmemory agentmemory &&
+    todo "agentmemory: start its server in a separate terminal: npx -y @agentmemory/agentmemory@latest (keep it running)."
+fi
+has remember && plugin anthropics/claude-plugins-official claude-plugins-official remember
+
+# ---------------------------------------------------------------- routing
+if has routing; then
+  copy_file "$KIT/files/hooks/routing-card.sh" "$CL/hooks/routing-card.sh" exec replace
+  for f in "$KIT"/files/agents/*.md; do copy_file "$f" "$CL/agents/$(basename "$f")" data keep; done
+fi
+if has model-selector; then
+  dest="$CL/local-marketplaces"; mkdir -p "$dest"
+  tmp=$(mktemp -d); unzip -q -o "$MS_ZIP" -d "$tmp" 2>/dev/null || fail "unzip $MS_ZIP"
+  mj=$(find "$tmp" -path '*/.claude-plugin/marketplace.json' -maxdepth 4 | head -1)
+  if [ -n "$mj" ]; then
+    src=$(dirname "$(dirname "$mj")"); name=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['name'])" "$mj")
+    [ -d "$dest/$name" ] || cp -R "$src" "$dest/$name"
+    for p in $(python3 -c "import json,sys;print(' '.join(p['name'] for p in json.load(open(sys.argv[1]))['plugins']))" "$mj"); do
+      plugin "$dest/$name" "$name" "$p"
+    done
+  else fail "no .claude-plugin/marketplace.json in $MS_ZIP"; fi
+fi
+
+# ---------------------------------------------------------------- judge
+if has jev; then
+  for f in jev jev-gate; do copy_file "$KIT/files/bin/$f" "$BIN/$f" exec replace; done
+  for f in jev_lib.py jev-hooks.py typesafe_key.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" data replace; done
+  mkdir -p "$CL/jev"; copy_file "$KIT/files/jev/policy.json" "$CL/jev/policy.json" data keep
+  todo "Jev: store your TypeSafe key in the macOS Keychain: security add-generic-password -s typesafe-api-key -a \"\$USER\" -w   (it prompts for the key; nothing lands in a file)."
+fi
+if has mjudge; then
+  copy_file "$KIT/files/bin/mjudge" "$BIN/mjudge" exec replace
+  todo "mjudge: put GEMINI_API_KEY=... in ~/.config/watch/.env (chmod 600), or export it in your shell."
+fi
+
+# ---------------------------------------------------------------- deliberation
+if has deliberation; then
+  plugin antonbabenko/agent-plugins antonbabenko deliberation &&
+    todo "Deliberation: set up at least one provider, then run /deliberation:setup in Claude Code. GPT: npm i -g @openai/codex && codex login. Grok: XAI_API_KEY. OpenRouter: OPENROUTER_API_KEY. Gemini: the agy CLI."
+fi
+
+# ---------------------------------------------------------------- settings.json (merge, never overwrite)
+say ""; say "Merging hooks into ~/.claude/settings.json (backup written first if anything changes):"
+python3 "$KIT/lib/merge_settings.py" "$CL/settings.json" "$KIT/lib/hooks.json" $SELECTED || fail "settings merge"
+for id in rtk codegraph graphify safety jev mjudge; do
+  has $id || continue
+  case ":$PATH:" in *":$BIN:"*) ;; *) todo "Add ~/.local/bin to PATH (in ~/.zprofile: export PATH=\"\$HOME/.local/bin:\$PATH\"), then open a new terminal. trashmv, jev, codegraph and graphify live there." ;; esac
+  break
+done
+# Remember what is installed, for doctor.sh (union with earlier runs).
+{ cat "$CL/kit/installed" 2>/dev/null; printf '%s\n' $SELECTED; } | sort -u | grep . > "$CL/kit/installed.tmp" && mv "$CL/kit/installed.tmp" "$CL/kit/installed"
+
+# ---------------------------------------------------------------- report
+say ""
+if [ -n "$FAILED" ]; then say "Finished with problems:"; printf '%s' "$FAILED"; else say "Install finished with no errors."; fi
+say ""
+say "Still to do by hand:"
+todo "Restart Claude Code (quit and reopen the desktop app, or start a new 'claude' session) so plugins and hooks load."
+todo "Check the install: $KIT/doctor.sh"
+printf '%s' "$TODO" | awk 'NF {printf "  %d. %s\n", ++n, $0}'
+[ -z "$FAILED" ]

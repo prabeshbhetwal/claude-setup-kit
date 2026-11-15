@@ -1,0 +1,112 @@
+{
+  "rtk": {
+    "hooks": [
+      {
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "type": "command",
+        "command": "\"__RTK__\" hook claude",
+        "match": "hook claude"
+      }
+    ]
+  },
+  "safety": {
+    "hooks": [
+      {
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/block-rm.py\"",
+        "timeout": 10,
+        "match": "block-rm.py"
+      }
+    ]
+  },
+  "indexes": {
+    "hooks": [
+      {
+        "event": "SessionStart",
+        "matcher": "",
+        "type": "command",
+        "command": "sh \"$HOME/.claude/hooks/ensure-indexes.sh\"",
+        "match": "ensure-indexes.sh"
+      },
+      {
+        "event": "Stop",
+        "type": "command",
+        "command": "sh \"$HOME/.claude/hooks/ensure-indexes.sh\" stop",
+        "async": true,
+        "match": "ensure-indexes.sh"
+      },
+      {
+        "event": "UserPromptSubmit",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/codegraph-gate.py\"",
+        "match": "codegraph-gate.py"
+      }
+    ]
+  },
+  "routing": {
+    "hooks": [
+      {
+        "event": "SessionStart",
+        "matcher": "",
+        "type": "command",
+        "command": "sh \"$HOME/.claude/hooks/routing-card.sh\"",
+        "match": "routing-card.sh"
+      }
+    ]
+  },
+  "cognee": {
+    "env": {
+      "COGNEE_BACKEND": "local"
+    }
+  },
+  "jev": {
+    "hooks": [
+      {
+        "event": "PostToolUse",
+        "matcher": "Bash|Read|Grep|Glob|WebFetch|mcp__.*",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/jev-hooks.py\" tool-output",
+        "timeout": 20,
+        "async": true,
+        "match": "jev-hooks.py\" tool-output"
+      },
+      {
+        "event": "PostToolUse",
+        "matcher": "mcp__.*__(search_threads|get_thread|get_message)",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/jev-hooks.py\" gmail",
+        "timeout": 15,
+        "async": true,
+        "match": "jev-hooks.py\" gmail"
+      },
+      {
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/jev-hooks.py\" pre-bash",
+        "timeout": 10,
+        "async": true,
+        "match": "jev-hooks.py\" pre-bash"
+      },
+      {
+        "event": "PreToolUse",
+        "matcher": "Skill",
+        "type": "command",
+        "command": "\"$HOME/.local/bin/jev-gate\" --hook",
+        "timeout": 20,
+        "match": "jev-gate"
+      },
+      {
+        "event": "SubagentStop",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/jev-hooks.py\" subagent-stop",
+        "timeout": 10,
+        "async": true,
+        "match": "jev-hooks.py\" subagent-stop"
+      }
+    ]
+  }
+}

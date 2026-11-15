@@ -1,0 +1,12 @@
+#!/usr/bin/perl
+# kit-timeout SECONDS CMD...: run CMD, kill it after SECONDS (exit 124). Stand-in for GNU timeout,
+# which macOS does not ship. Used by ensure-indexes.sh and doctor.sh only when `timeout` is absent.
+use strict; use warnings;
+my $t = shift or die "usage: kit-timeout SECONDS CMD...\n";
+my $pid = fork() // die "fork: $!\n";
+if ($pid == 0) { setpgrp(0, 0); exec @ARGV or die "exec $ARGV[0]: $!\n"; }
+# Signal the whole group: MCP servers and other grandchildren must not outlive the timeout.
+local $SIG{ALRM} = sub { kill 'TERM', -$pid; sleep 2; kill 'KILL', -$pid; exit 124; };
+alarm $t;
+waitpid($pid, 0);
+exit($? & 127 ? 128 + ($? & 127) : $? >> 8);

@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""jev: bulk semantic triage with TypeSafe's Jev, so raw items never enter an agent's context.
+
+One judgment over many items (one per stdin line, or a JSON array with --json-in):
+  jev noul   "Is this line a real error, not noise?"        < lines.txt
+  jev choice "What kind of failure is this?" -o flaky="timing/order dependent" -o real="code bug" < fails.txt
+  jev score  "How risky is this change?" -l "cosmetic" -l "local logic" -l "data or security" < commits.txt
+Filters: --min P (noul: keep p >= P; default 0.5), --only OPT (choice), --top N, --all.
+Shared context for every item: --context "text".  Raw API body: jev raw < request.json
+Exit 0 ok; 2 Jev unavailable or refused (fall back to reading items yourself).
+Never send secrets: input that looks like a credential is refused.
+"""
+import argparse
+import concurrent.futures
+import json
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path.home() / ".claude/hooks"))
+try:
+    from typesafe_key import get_key  # env first, then macOS Keychain
+except ImportError:
+    import os
+
+    def get_key() -> str:
+        return os.environ.get("TYPESAFE_API_KEY", "").strip()
+
+def tls_context():
+    """Default TLS context; python.org builds ship with no CA certs, so fall back to macOS's system bundle."""
+    import ssl
+    ctx = ssl.create_default_context()
+    try:
+        empty = not ctx.get_ca_certs()
+    except NotImplementedError:  # truststore (e.g. inside Hermes) already uses the macOS system trust store
+        empty = False
+    if empty:
+        for bundle in ("/etc/ssl/cert.pem", "/opt/homebrew/etc/ca-certificates/cert.pem"):
+            if Path(bundle).is_file():
+                ctx.load_verify_locations(bundle)
+                break
+    return ctx
+
+
+TLS = tls_context()
+URL = "https://api.typesafe.ai/v1/systemone"
+MODEL = "jev-latest"
+BATCH = 40  # items per request; batches run in parallel
+SECRET = re.compile(
+    r"(-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|\bsk-[A-Za-z0-9_-]{20,}|\bgh[pousr]_[A-Za-z0-9]{30,}"
+    r"|xox[abpr]-[A-Za-z0-9-]{10,}|(?i:(password|passwd|secret|api[_-]?key|token)\s*[:=]\s*\S{8,}))"
+)
+
+
+def die(msg: str) -> None:
+    print(f"jev unavailable: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def call(body: dict) -> dict:
+    key = get_key()
+    if not key:
+        die("no TypeSafe key (env TYPESAFE_API_KEY or Keychain typesafe-api-key)")
+    headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+    # Images and Box questions are opt-in (docs.typesafe.ai/images); text-only bodies stay unflagged.
+    if body.get("assets") or any(q.get("type") == "box" for q in body.get("questions", {}).values()):
+        headers["TypeSafe-Danger-Zone-Images"] = "true"
+    req = urllib.request.Request(URL, data=json.dumps(body).encode(), method="POST", headers=headers)
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=60, context=TLS) as res:
+                return json.load(res)
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 529, 502, 503) and attempt < 3:
+                time.sleep(2 ** attempt)
+                continue
+            die(f"HTTP {e.code}: {e.read().decode(errors='replace')[:200]}")
+        except (urllib.error.URLError, TimeoutError) as e:
+            if attempt < 3:
+                time.sleep(2 ** attempt)
+                continue
+            die(str(e)[:200])
+    die("retries exhausted")
+
+
+def question(kind: str, text: str, index: int, opts: dict, levels: list) -> dict:
+    q = {"type": kind, "instructions": f"{text}\nJudge only item `items[{index}]`."}
+    if kind == "choice":
+        q["criteria"] = opts
+    elif kind == "score":
+        q["criteria"] = levels
+    return q
+
+
+def judge(kind: str, text: str, items: list, context: str, opts: dict, levels: list):
+    """Answers for every item, in order, plus total token usage."""
+    batches = [list(range(i, min(i + BATCH, len(items)))) for i in range(0, len(items), BATCH)]
+
+    def run(idx):
+        state = {"items": {str(i): items[i] for i in idx}}
+        if context:
+            state["context"] = context
+        qs = {str(i): question(kind, text, i, opts, levels) for i in idx}
+        out = call({"state": state, "model": MODEL, "questions": qs})
+        return out["answers"], out.get("usage", {})
+
+    answers, usage = {}, {"input_tokens": 0, "output_tokens": 0}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        for got, used in pool.map(run, batches):
+            answers.update(got)
+            for k in usage:
+                usage[k] += int(used.get(k) or 0)
+    return [answers[str(i)] for i in range(len(items))], usage
+
+
+def value(kind: str, a: dict):
+    return a["noul"] if kind == "noul" else a["choice"] if kind == "choice" else a["score"]
+
+
+def main(argv=None) -> None:
+    p = argparse.ArgumentParser(prog="jev", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("kind", choices=["noul", "choice", "score", "raw", "selftest"])
+    p.add_argument("question", nargs="?", default="")
+    p.add_argument("-o", "--opt", action="append", default=[], help="choice option: name=description")
+    p.add_argument("-l", "--level", action="append", default=[], help="score level, lowest first")
+    p.add_argument("--context", default="")
+    p.add_argument("--json-in", action="store_true", help="stdin is a JSON array of items")
+    p.add_argument("--min", type=float, default=0.5)
+    p.add_argument("--only", default="")
+    p.add_argument("--top", type=int, default=0)
+    p.add_argument("--all", action="store_true", help="print every item, no filtering")
+    p.add_argument("--json", action="store_true", help="machine output")
+    a = p.parse_args(argv)
+
+    if a.kind == "selftest":
+        return selftest()
+    raw = sys.stdin.read()
+    if SECRET.search(raw + a.context):
+        die("input looks like it contains a credential; refusing to send it")
+    if a.kind == "raw":
+        print(json.dumps(call(json.loads(raw))))
+        return
+    if not a.question:
+        die("question text required")
+    items = json.loads(raw) if a.json_in else [line for line in raw.splitlines() if line.strip()]
+    if not items:
+        die("no items on stdin")
+    opts = dict(o.split("=", 1) for o in a.opt)
+    if a.kind == "choice" and len(opts) < 2:
+        die("choice needs at least two -o name=description")
+    if a.kind == "score" and len(a.level) < 2:
+        die("score needs at least two -l levels")
+
+    answers, usage = judge(a.kind, a.question, items, a.context, opts, a.level)
+    rows = [(i, value(a.kind, ans), ans) for i, ans in enumerate(answers)]
+    if not a.all:
+        if a.kind == "noul":
+            rows = [r for r in rows if r[1] >= a.min]
+        elif a.kind == "choice" and a.only:
+            rows = [r for r in rows if r[1] == a.only]
+    if a.kind in ("noul", "score"):
+        rows.sort(key=lambda r: -r[1])
+    if a.top:
+        rows = rows[: a.top]
+
+    if a.json:
+        print(json.dumps({"rows": [{"index": i, "answer": ans, "item": items[i]} for i, _, ans in rows],
+                          "total": len(items), "usage": usage}))
+        return
+    for i, v, ans in rows:
+        shown = f"{v:.2f}" if isinstance(v, float) else f"{v} ({ans.get('confidence', 0):.2f})"
+        text = items[i] if isinstance(items[i], str) else json.dumps(items[i])
+        print(f"{i}\t{shown}\t{text[:200]}")
+    if a.kind == "choice":
+        counts = {}
+        for ans in answers:
+            counts[ans["choice"]] = counts.get(ans["choice"], 0) + 1
+        print("# counts: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    print(f"# {len(rows)}/{len(items)} shown · tokens in={usage['input_tokens']} out={usage['output_tokens']}")
+
+
+def selftest() -> None:
+    """Live check of all three primitives, batching and ordering. Spends a few hundred Jev tokens."""
+    lines = ["ERROR: database connection refused, retries exhausted", "INFO: request served in 12ms",
+             "DEBUG: cache warm", "FATAL: out of memory, process killed"]
+    noul, _ = judge("noul", "Is this log line a real failure that needs attention?", lines, "", {}, [])
+    p = [x["noul"] for x in noul]
+    assert p[0] > 0.5 and p[3] > 0.5 and p[1] < 0.5 and p[2] < 0.5, f"noul ordering wrong: {p}"
+    choice, _ = judge("choice", "What kind of message is this?", ["Payment failed, card declined", "App crashes on launch"],
+                      "", {"billing": "payments, cards, invoices", "technical": "bugs, crashes"}, [])
+    assert [c["choice"] for c in choice] == ["billing", "technical"], f"choice wrong: {choice}"
+    score, _ = judge("score", "How urgent is this?", ["whenever you get a chance", "production is down for everyone"],
+                     "", {}, ["not urgent", "somewhat urgent", "critical now"])
+    assert score[1]["score"] > score[0]["score"], f"score ordering wrong: {score}"
+    many = [f"item {n}: {'broken build' if n % 2 else 'all green'}" for n in range(45)]  # > BATCH: two requests
+    flags, used = judge("noul", "Does this report a failure?", many, "", {}, [])
+    assert len(flags) == 45 and flags[1]["noul"] > flags[0]["noul"], "batch ordering wrong"
+    assert SECRET.search("api_key = abcdef1234567890"), "secret guard missed"  # scan:allow (fake test value)
+    print(f"selftest ok · noul {[round(x, 2) for x in p]} · 45-item batch tokens in={used['input_tokens']}")
+
+
+if __name__ == "__main__":
+    main()
