@@ -9,11 +9,15 @@
 # Logs: ~/.claude/cache/index-builds/<repo-path>.log
 mode=${1:-start}
 CG="$HOME/.local/bin/codegraph"; GF="$HOME/.local/bin/graphify"   # pinned: older graphify copies sit earlier on some PATHs
+[ -x "$CG" ] || CG=$(command -v codegraph || echo "$CG")            # Windows: npm/uv put codegraph.cmd / graphify.exe elsewhere
+[ -x "$GF" ] || GF=$(command -v graphify || echo "$GF")
+PY=$(command -v python3 || command -v python)                       # Windows has python, often no python3
+SHA=$(command -v shasum || command -v sha1sum)
 TO=$(command -v timeout 2>/dev/null || echo "$HOME/.claude/hooks/kit-timeout")   # macOS has no GNU timeout
 
 # Hooks get the session dir as JSON on stdin; fall back to $PWD when run by hand.
 if [ ! -t 0 ]; then
-  cwd=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("cwd",""))' 2>/dev/null)
+  cwd=$("$PY" -c 'import json,sys; print(json.load(sys.stdin).get("cwd",""))' 2>/dev/null)
   [ -n "$cwd" ] && cd "$cwd" 2>/dev/null
 fi
 
@@ -73,8 +77,8 @@ fi
 # edit to an already-modified file still counts. Unchanged since the last refresh: nothing to do.
 sig=$( { git -C "$r" rev-parse HEAD 2>/dev/null
          git -C "$r" status --porcelain -uall 2>/dev/null | while IFS= read -r line; do
-           echo "$line"; stat -f '%m %z' "$r/${line#???}" 2>/dev/null
-         done; } | shasum | cut -c1-40 )
+           echo "$line"; { stat -c '%Y %s' "$r/${line#???}" || stat -f '%m %z' "$r/${line#???}"; } 2>/dev/null   # GNU (Git Bash) first; BSD rejects -c
+         done; } | "$SHA" | cut -c1-40 )
 [ "$sig" = "$(cat "$stamp" 2>/dev/null)" ] && exit 0
 
 # The stamp is written only after both refreshes succeed, so a failed run is retried next time.

@@ -1,6 +1,6 @@
 # claude-setup-kit
 
-A one-command install of a tuned Claude Code setup for macOS. It covers token savers, memory, model routing, judge tools and second opinions. The installer explains each tool and asks which ones you want. You only type things that truly need you: API keys and sign-ins.
+A one-command install of a tuned Claude Code setup for macOS and Windows. It covers token savers, memory, model routing, judge tools and second opinions. The installer explains each tool and asks which ones you want. You only type things that truly need you: API keys and sign-ins.
 
 ```bash
 git clone <this repo> claude-setup-kit && cd claude-setup-kit
@@ -9,6 +9,24 @@ git clone <this repo> claude-setup-kit && cd claude-setup-kit
 ```
 
 Non-interactive: `./install.sh --yes` installs the core tier only (no keys, no paid services). `--tiers core,memory,routing,judge,deliberation` picks tiers, `--only rtk,caveman` to pick single tools, and `--list` to see everything.
+
+### Windows
+
+Needs Git for Windows (the kit's hooks run in Git Bash), Python 3 on PATH, and Node.js for the core tier. `install.ps1` checks all of these first and changes nothing if one is missing.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1      # explains each tool, asks per tier
+.\doctor.ps1
+```
+
+Same options as on macOS: `-Yes`, `-Tiers core,memory`, `-Only rtk,caveman`, `-Skip graphify`, `-List`.
+
+**Windows status: written and reviewed on a Mac, not yet run on Windows.** Differences from macOS:
+- RTK comes from `winget` (`rtk-ai.rtk`), not Homebrew.
+- The Jev key is a user environment variable (`TYPESAFE_API_KEY`); there is no Keychain lookup.
+- `mjudge` cannot resize images (that needs macOS `sips`), so the Jev second opinion on PNG/JPG is skipped; Gemini still answers.
+- The `rm` blocker covers Claude's Bash tool only, not its PowerShell tool.
+- `token-daily.py --notify` sends no desktop notification.
 
 ## What you can install
 
@@ -81,7 +99,7 @@ Every hook also adds a little latency. The Jev shadow hooks are async and fail o
 
 ## Known limits
 
-- **macOS only, as tested.** Parts tied to macOS: Keychain lookup for the TypeSafe key, `osascript` notifications in `token-daily.py --notify`, BSD `stat -f` in `ensure-indexes.sh`, and Homebrew for RTK. On other systems the installer stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
+- **Tested on macOS only.** The Windows installer (`install.ps1`) has not been run on Windows yet; see the Windows section. Linux is not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
 - **The model router saved nothing on a small job** (see Measured numbers). Routing pays off only when large, tool-heavy work goes to lean helpers.
 - **Trim savings are unmeasured until 23 Nov 2026.**
 - **Model Selector pack is not included.** It carries no licence, so it cannot be redistributed. If you have the zip from its author, pass `--model-selector-zip PATH`.
@@ -112,8 +130,10 @@ This repo: MIT ([LICENSE](LICENSE)). Installed from their own sources:
 ## Files
 
 ```
-install.sh        interactive installer (tiers, per-tool choice, idempotent)
-doctor.sh         verifies what install.sh recorded; --quick skips the MCP check
+install.sh        macOS installer (tiers, per-tool choice, idempotent)
+doctor.sh         macOS check of what install.sh recorded; --quick skips the MCP check
+install.ps1       Windows installer (same tiers and options)
+doctor.ps1        Windows check; -Quick skips the MCP check
 scan.sh           secret / personal-data scan; run before every commit
 .env.example      every key, where it goes, what works without it
 lib/              catalogue, hook fragments, settings merger

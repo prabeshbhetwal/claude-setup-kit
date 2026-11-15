@@ -11,6 +11,7 @@ Self-check: python3 codegraph-gate.py --test
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -90,7 +91,7 @@ def main():
     if not is_code_prompt(prompt) or not jev_says_code(prompt, json.loads(raw).get("cwd", "")):
         return
     try:
-        out = subprocess.run(["codegraph", "prompt-hook"], input=raw, capture_output=True,
+        out = subprocess.run([shutil.which("codegraph") or "codegraph", "prompt-hook"], input=raw, capture_output=True,
                              text=True, timeout=30).stdout
     except (OSError, subprocess.TimeoutExpired):
         return

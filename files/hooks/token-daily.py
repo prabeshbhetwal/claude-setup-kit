@@ -128,6 +128,6 @@ if __name__ == "__main__":
     path = os.path.join(OUT, f"{day:%Y-%m-%d}.md")
     open(path, "w").write(text + "\n")
     print(text)
-    if "--notify" in sys.argv:
+    if "--notify" in sys.argv and sys.platform == "darwin":  # osascript notification is macOS-only
         msg = summary(day, days, est).replace('"', "'")
         subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Claude tokens" subtitle "Full report: {path.replace(os.path.expanduser("~"), "~")}"'], check=False)

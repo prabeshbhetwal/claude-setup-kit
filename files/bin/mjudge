@@ -51,7 +51,10 @@ def fit_for_jev(path: Path, data: bytes) -> bytes:
     import math
     import subprocess
     import tempfile
-    out = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)], capture_output=True, text=True)
+    try:
+        out = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)], capture_output=True, text=True)
+    except OSError:  # sips is macOS-only: no Jev second opinion on other systems, Gemini still answers
+        raise Unavailable("jev: image sizing needs macOS sips; Jev skipped on this system")
     dims = [int(l.split(":")[1]) for l in out.stdout.splitlines() if "pixel" in l]
     if len(dims) != 2:
         raise Unavailable(f"jev: cannot read size of {path.name}")
