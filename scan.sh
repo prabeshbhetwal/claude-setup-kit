@@ -16,7 +16,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-files=$(find . -type f ! -path './.git/*' ! -name scan.sh | sort)
+files=$(find . -type f ! -path './.git/*' ! -path './private/*' ! -name scan.sh | sort)  # private/ is gitignored, never published
 hits=0
 check() { # check LABEL PATTERN [grep flags]
   local out rc

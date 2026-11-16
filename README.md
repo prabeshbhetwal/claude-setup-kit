@@ -1,10 +1,10 @@
 # claude-setup-kit
 
-A one-command install of a tuned Claude Code setup for macOS and Windows. It covers token savers, memory, model routing, judge tools and second opinions. The installer explains each tool and asks which ones you want. You only type things that truly need you: API keys and sign-ins.
+A one-command install of a tuned Claude Code setup for macOS and Windows. It covers token savers, memory, model routing, judge tools and second opinions. The installer explains what each tool does and how it helps, then shows a checkbox list per tier: type the numbers to tick or untick, Enter to go on. You only type things that truly need you: API keys and sign-ins.
 
 ```bash
 git clone <this repo> claude-setup-kit && cd claude-setup-kit
-./install.sh          # explains each tool, asks per tier, then installs
+./install.sh          # explains each tool, then a checkbox list per tier
 ./doctor.sh           # checks the install
 ```
 
@@ -41,14 +41,14 @@ Same options as on macOS: `-Yes`, `-Tiers core,memory`, `-Only rtk,caveman`, `-S
 | core | Graphify | Knowledge graph and plain-language report of a repo and its docs | uv or pipx |
 | core | Safe delete | Blocks `rm` in Claude's shell; `trashmv` files things into `~/_trash/` instead | — |
 | core | Auto index hooks | Builds and refreshes CodeGraph and Graphify indexes in the background | — |
-| core | Token measuring scripts | Reads your local transcripts: scorecard, daily report, before/after comparison | — |
+| core | Token measuring scripts | Reads your local transcripts: scorecard, daily report, before/after comparison, and a monthly report (used, saved, would-have-used) that runs by itself on the 1st | — |
 | core | CLAUDE.md + guides | Rules that tell Claude when to use each installed tool | 4 placeholders to fill |
 | memory | Supermemory | Cross-session recall and save | Supermemory account |
 | memory | Cognee (local) | Local knowledge graph of your conversations | LLM API key, paid per use |
 | memory | agentmemory | Local memory server for agent sessions | You start its server |
 | memory | remember | Rolling session history | — |
 | routing | Routing card + lean agents | Cheapest model and effort per task; small-context helper agents | — |
-| routing | Model Selector pack | Optional: model pick per prompt, sub-agent routing | A zip you obtained yourself |
+| routing | Model Selector pack | Optional: model pick per prompt, sub-agent routing | Your private copy (see below) or a zip from Ben AI |
 | judge | Jev (`jev`, `jev-gate`, shadow hooks) | Fast external yes/no triage over many items | TypeSafe key (paid) |
 | judge | mjudge | Yes/no/score over images, video, audio, PDFs | Gemini key (free tier exists) |
 | deliberation | Deliberation | Second opinions and consensus from GPT, Gemini, Grok, OpenRouter | One provider sign-in or key |
@@ -85,6 +85,8 @@ All from the author's own Mac on 2026-11-15. One machine, small samples.
 
 Measure your own: `python3 ~/.claude/hooks/token-scorecard.py 30`, and `python3 ~/.claude/hooks/token-compare.py` a week after installing.
 
+**Monthly report.** `token-monthly.py` runs at 09:00 on the 1st (launchd on macOS, Task Scheduler on Windows; no Claude tokens) and writes `~/.claude/cache/token-compare/monthly/YYYY-MM.md`; on macOS it also shows a notification. It reports tokens used, tokens saved and what you would have used without the kit. Saved has two parts, kept apart: **measured** (RTK's own count of shell output it cut; a floor) and **estimated** (how much smaller sessions start since install, per session type, times the month's requests). Caveman, context-mode, CodeGraph and Graphify have no monthly counter, so their savings are not in it. Run it by hand: `python3 ~/.claude/hooks/token-monthly.py 2026-12`.
+
 ## What it costs to run
 
 | Tier | Cost |
@@ -102,7 +104,7 @@ Every hook also adds a little latency. The Jev shadow hooks are async and fail o
 - **Tested on macOS only.** The Windows installer (`install.ps1`) has not been run on Windows yet; see the Windows section. Linux is not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
 - **The model router saved nothing on a small job** (see Measured numbers). Routing pays off only when large, tool-heavy work goes to lean helpers.
 - **Trim savings are unmeasured until 23 Nov 2026.**
-- **Model Selector pack is not included.** It carries no licence, so it cannot be redistributed. If you have the zip from its author, pass `--model-selector-zip PATH`.
+- **Model Selector pack is not in the public repo.** It is Ben AI's and carries no licence, so it cannot be redistributed. For your own machines, `./pack-private.sh` packs the copy you run (with your changes) into `private/` (gitignored, skipped by `scan.sh`) and builds `../claude-setup-kit-private.zip`; the installers use `private/claude-model-selector.zip` automatically. Never publish that zip. Otherwise pass `--model-selector-zip PATH`. Its own install notes say Mac; on Windows it is untested.
 - **Jev shadow hooks only log.** They write to `~/.claude/jev/decisions.jsonl` and never block or inject. `jev-gate` (before Skill calls) does add a verdict line and can delay a Skill call by up to 20 s.
 - **RTK's hook gets rtk's full path** at install time, because Claude Code's hook PATH may not include `~/.local/bin` or Homebrew. If you move rtk, re-run `install.sh`. Other tools (`trashmv`, `jev`, `codegraph`, `graphify`) live in `~/.local/bin`, which must be on your PATH.
 - **Index hooks skip small repos.** They only index git repos with 10 or more source files, and never your home folder.
@@ -135,6 +137,7 @@ doctor.sh         macOS check of what install.sh recorded; --quick skips the MCP
 install.ps1       Windows installer (same tiers and options)
 doctor.ps1        Windows check; -Quick skips the MCP check
 scan.sh           secret / personal-data scan; run before every commit
+pack-private.sh   packs your own Model Selector copy into private/ (never published)
 .env.example      every key, where it goes, what works without it
 lib/              catalogue, hook fragments, settings merger
 files/            this kit's own scripts, hooks, agents, guides and CLAUDE.md template

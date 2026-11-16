@@ -68,8 +68,35 @@ ask() { # ask "question" default(y|n) -> 0 for yes
   return 1
 }
 
-describe() {
-  printf '\n  %s  (%s)\n' "$(field "$1" 3)" "$(field "$1" 4)"
+# Checkbox menu for one tier: shows [x]/[ ] per tool, toggles by number until Enter.
+pick_tier() { # pick_tier TIER default(y|n)
+  local ids on=" " a w id i m
+  ids=$(echo $(tier_ids "$1")); [ "$2" = y ] && on=" $ids "  # echo collapses newlines to single spaces
+  while :; do
+    i=0; say ""
+    for id in $ids; do
+      i=$((i + 1)); case "$on" in *" $id "*) m=x ;; *) m=' ' ;; esac
+      printf '  [%s] %d. %s\n' "$m" "$i" "$(field "$id" 3)"
+    done
+    printf '  Type numbers to tick/untick (e.g. 1 3), a = all, n = none, Enter = done: '
+    read -r a </dev/tty || a=""
+    [ -z "$a" ] && break
+    for w in $a; do
+      case "$w" in
+        a) on=" $ids " ;;
+        n) on=" " ;;
+        *[!0-9]*) say "  '$w' is not a number" ;;
+        *) id=$(printf '%s\n' $ids | sed -n "${w}p")
+           if [ -z "$id" ]; then say "  no tool $w"
+           else case "$on" in *" $id "*) on=${on/ $id / } ;; *) on="$on$id " ;; esac; fi ;;
+      esac
+    done
+  done
+  for id in $on; do add "$id"; done
+}
+
+describe() { # describe ID [NUMBER]
+  printf '\n  %s%s  (%s)\n' "${2:+$2. }" "$(field "$1" 3)" "$(field "$1" 4)"
   printf '    What:  %s\n    Helps: %s\n    Needs: %s\n' "$(field "$1" 5)" "$(field "$1" 6)" "$(field "$1" 7)"
 }
 
@@ -96,17 +123,15 @@ else
   say "Nothing is changed until all questions are answered."
   for t in $TIERS_ALL; do
     say ""; say "=== $(tier_title "$t")"
-    for id in $(tier_ids "$t"); do describe "$id"; done
-    say ""
+    i=0; for id in $(tier_ids "$t"); do i=$((i + 1)); describe "$id" "$i"; done
     d=n; [ "$t" = core ] && d=y
-    if ask "Install the whole $t tier?" "$d"; then
-      for id in $(tier_ids "$t"); do add "$id"; done
-    elif ask "  Choose $t tools one by one instead?" n; then
-      for id in $(tier_ids "$t"); do ask "    Install $(field "$id" 3)?" y && add "$id"; done
-    fi
+    if { : </dev/tty; } 2>/dev/null; then pick_tier "$t" "$d"
+    elif [ "$d" = y ]; then for id in $(tier_ids "$t"); do add "$id"; done; fi
   done
 fi
-# The Model Selector pack is not redistributable: only from a zip the person supplies.
+# The Model Selector pack is not redistributable: only from a zip the person supplies,
+# or from private/ in their own copy of the kit (pack-private.sh; gitignored).
+[ -z "$MS_ZIP" ] && [ -f "$KIT/private/claude-model-selector.zip" ] && MS_ZIP="$KIT/private/claude-model-selector.zip"
 if has model-selector && [ -z "$MS_ZIP" ]; then
   if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
     printf '  Path to your Model Selector zip (Enter to skip): '; read -r MS_ZIP </dev/tty
@@ -284,9 +309,33 @@ if has indexes; then
   copy_file "$KIT/files/hooks/kit-timeout" "$CL/hooks/kit-timeout" exec replace
 fi
 if has measure; then
-  for f in token-scorecard.py token-compare.py token-daily.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
-  mkdir -p "$CL/cache/token-compare"
+  for f in token-scorecard.py token-compare.py token-daily.py token-monthly.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
+  mkdir -p "$CL/cache/token-compare/monthly"
   [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
+  # Freeze the week before install now, while those transcripts still exist (Claude Code prunes old ones).
+  [ -f "$CL/cache/token-compare/before-week.json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (week before install)"; }
+  # Monthly report: launchd runs token-monthly.py at 09:00 on the 1st (a missed run fires at next wake). No Claude tokens.
+  LA="$HOME/Library/LaunchAgents"; LBL=com.claude-setup-kit.token-monthly; PL="$LA/$LBL.plist"; mkdir -p "$LA"
+  cat > "$PL.tmp" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$LBL</string>
+  <key>ProgramArguments</key><array><string>$(command -v python3)</string><string>$CL/hooks/token-monthly.py</string><string>--notify</string></array>
+  <key>StartCalendarInterval</key><dict><key>Day</key><integer>1</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>$CL/cache/token-compare/monthly/launchd.log</string>
+  <key>StandardErrorPath</key><string>$CL/cache/token-compare/monthly/launchd.log</string>
+</dict></plist>
+PLIST
+  if cmp -s "$PL.tmp" "$PL"; then rm -f "$PL.tmp"; ok "monthly token report already scheduled"
+  else
+    mv "$PL.tmp" "$PL"
+    # launchd is per user, not per HOME: only load it for the real home, never for a test HOME.
+    if [ "$HOME" = "$(eval echo "~$(id -un)")" ]; then
+      launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
+      launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "monthly token report scheduled (1st of each month, 09:00)" || fail "launchctl bootstrap $PL"
+    else info "test HOME: monthly schedule written to $PL, not loaded"; fi
+  fi
 fi
 
 # ---------------------------------------------------------------- memory
@@ -315,6 +364,8 @@ if has model-selector; then
   mj=$(find "$tmp" -path '*/.claude-plugin/marketplace.json' -maxdepth 4 | head -1)
   if [ -n "$mj" ]; then
     src=$(dirname "$(dirname "$mj")"); name=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['name'])" "$mj")
+    # Newer pack replaces an older copy (old one kept as .bak-kit-<time>); an identical copy is left alone.
+    if [ -d "$dest/$name" ] && ! diff -rq "$src" "$dest/$name" >/dev/null 2>&1; then mv "$dest/$name" "$dest/$name.bak-kit-$TS"; fi
     [ -d "$dest/$name" ] || cp -R "$src" "$dest/$name"
     for p in $(python3 -c "import json,sys;print(' '.join(p['name'] for p in json.load(open(sys.argv[1]))['plugins']))" "$mj"); do
       plugin "$dest/$name" "$name" "$p"

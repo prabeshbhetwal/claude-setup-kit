@@ -57,9 +57,9 @@ function Ask($q, $default) {
   if (-not $a) { $a = $default }
   return ($a -match '^(y|yes)$')
 }
-function Describe($id) {
+function Describe($id, $n) {
   $c = Item $id
-  Write-Host ""; Write-Host "  $($c.Name)  ($($c.Licence))"
+  Write-Host ""; Write-Host "  $n. $($c.Name)  ($($c.Licence))"
   Write-Host "    What:  $($c.What)"; Write-Host "    Helps: $($c.Helps)"; Write-Host "    Needs: $($c.Needs)"
 }
 $TierTitle = @{
@@ -84,15 +84,27 @@ if ($Only) {
   Write-Host "Nothing is changed until all questions are answered."
   foreach ($t in $TIERS_ALL) {
     Write-Host ""; Write-Host "=== $($TierTitle[$t])"
-    foreach ($id in (TierIds $t)) { Describe $id }
-    Write-Host ""
-    $d = if ($t -eq 'core') { 'y' } else { 'n' }
-    if (Ask "Install the whole $t tier?" $d) { foreach ($id in (TierIds $t)) { Add $id } }
-    elseif (Ask "  Choose $t tools one by one instead?" 'n') {
-      foreach ($id in (TierIds $t)) { if (Ask "    Install $((Item $id).Name)?" 'y') { Add $id } }
+    $ids = @(TierIds $t); for ($i = 0; $i -lt $ids.Count; $i++) { Describe $ids[$i] ($i + 1) }
+    # Checkbox menu: [x]/[ ] per tool, toggle by number until Enter. Core starts ticked.
+    $on = New-Object System.Collections.Generic.HashSet[string]
+    if ($t -eq 'core') { foreach ($id in $ids) { [void]$on.Add($id) } }
+    while ($true) {
+      Write-Host ""
+      for ($i = 0; $i -lt $ids.Count; $i++) { $m = if ($on.Contains($ids[$i])) { 'x' } else { ' ' }; Write-Host "  [$m] $($i + 1). $((Item $ids[$i]).Name)" }
+      $a = Read-Host '  Type numbers to tick/untick (e.g. 1 3), a = all, n = none, Enter = done'
+      if (-not $a) { break }
+      foreach ($w in ($a -split '[\s,]+' | Where-Object { $_ })) {
+        if ($w -eq 'a') { foreach ($id in $ids) { [void]$on.Add($id) } }
+        elseif ($w -eq 'n') { $on.Clear() }
+        elseif ($w -match '^\d+$' -and [int]$w -ge 1 -and [int]$w -le $ids.Count) { $id = $ids[[int]$w - 1]; if (-not $on.Remove($id)) { [void]$on.Add($id) } }
+        else { Write-Host "  no tool $w" }
+      }
     }
+    foreach ($id in $ids) { if ($on.Contains($id)) { Add $id } }
   }
 }
+# Your own copy of the kit may carry the pack in private\ (pack-private.sh; gitignored, never published).
+if (-not $ModelSelectorZip -and (Test-Path (Join-Path $KIT 'private\claude-model-selector.zip'))) { $ModelSelectorZip = Join-Path $KIT 'private\claude-model-selector.zip' }
 if ((Has 'model-selector') -and -not $ModelSelectorZip) {
   if ($Interactive) { $ModelSelectorZip = Read-Host '  Path to your Model Selector zip (Enter to skip)' }
   if (-not $ModelSelectorZip) { Drop 'model-selector'; Info 'Model Selector pack skipped (no zip given)' }
@@ -257,9 +269,15 @@ if (Has 'indexes') {
   foreach ($f in @('ensure-indexes.sh', 'codegraph-gate.py', 'kit-timeout')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
 }
 if (Has 'measure') {
-  foreach ($f in @('token-scorecard.py', 'token-compare.py', 'token-daily.py')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
-  New-Item -ItemType Directory -Force -Path "$CL\cache\token-compare" | Out-Null
+  foreach ($f in @('token-scorecard.py', 'token-compare.py', 'token-daily.py', 'token-monthly.py')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
+  New-Item -ItemType Directory -Force -Path "$CL\cache\token-compare\monthly" | Out-Null
   if (-not (Test-Path "$CL\cache\token-compare\change-date")) { [IO.File]::WriteAllText("$CL\cache\token-compare\change-date", (Get-Date -Format 'yyyy-MM-dd')) }
+  # Freeze the week before install now, while those transcripts still exist.
+  if (-not (Test-Path "$CL\cache\token-compare\before-week.json")) { & $PY "$CL\hooks\token-compare.py" *> $null; if ($LASTEXITCODE -eq 0) { Ok 'token baseline frozen (week before install)' } }
+  # Monthly report: Task Scheduler runs token-monthly.py at 09:00 on the 1st. No Claude tokens. /F makes re-runs safe.
+  $pyw = (Get-Command pythonw -ErrorAction SilentlyContinue | Select-Object -First 1).Source; if (-not $pyw) { $pyw = (Get-Command $PY).Source }
+  schtasks /Create /F /SC MONTHLY /D 1 /ST 09:00 /TN 'claude-setup-kit token-monthly' /TR "`"$pyw`" `"$CL\hooks\token-monthly.py`"" *> $null
+  if ($LASTEXITCODE -eq 0) { Ok 'monthly token report scheduled (1st of each month, 09:00; report in ~\.claude\cache\token-compare\monthly)' } else { Fail 'schtasks /Create claude-setup-kit token-monthly' }
 }
 
 # ---------------------------------------------------------------- memory

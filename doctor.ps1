@@ -68,7 +68,12 @@ if (Has 'indexes') {
   Hook-On 'Stop' 'ensure-indexes.sh' 'index refresh after each turn'
   Hook-On 'UserPromptSubmit' 'codegraph-gate.py' 'CodeGraph context'
 }
-if (Has 'measure') { Selftest 'token-compare.py' { & $PY "$CL\hooks\token-compare.py" selftest }; Selftest 'token-daily.py' { & $PY "$CL\hooks\token-daily.py" selftest } }
+if (Has 'measure') {
+  Selftest 'token-compare.py' { & $PY "$CL\hooks\token-compare.py" selftest }; Selftest 'token-daily.py' { & $PY "$CL\hooks\token-daily.py" selftest }
+  Selftest 'token-monthly.py' { & $PY "$CL\hooks\token-monthly.py" selftest }
+  schtasks /Query /TN 'claude-setup-kit token-monthly' *> $null
+  if ($LASTEXITCODE -eq 0) { Pass 'monthly token report scheduled (1st, 09:00)' } else { Fail 'monthly token report not scheduled: re-run install.ps1' }
+}
 if (Has 'rules') {
   if (Test-Path "$CL\CLAUDE.md") { Pass '~\.claude\CLAUDE.md present' } else { Fail '~\.claude\CLAUDE.md missing' }
   if ((Test-Path "$CL\CLAUDE.md") -and (Select-String -Path "$CL\CLAUDE.md" -Pattern '{{' -SimpleMatch -Quiet)) { Warn '~\.claude\CLAUDE.md still has {{...}} placeholders' }

@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 .DS_Store
+# your own non-redistributable bundles (pack-private.sh); never commit
+private/

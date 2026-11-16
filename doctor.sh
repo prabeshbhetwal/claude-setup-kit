@@ -87,6 +87,11 @@ fi
 if has measure; then
   selftest python3 "$CL/hooks/token-compare.py" selftest
   selftest python3 "$CL/hooks/token-daily.py" selftest
+  selftest python3 "$CL/hooks/token-monthly.py" selftest
+  PL="$HOME/Library/LaunchAgents/com.claude-setup-kit.token-monthly.plist"
+  if [ ! -f "$PL" ]; then fail "monthly token report not scheduled ($PL missing): re-run install.sh"
+  elif launchctl print "gui/$(id -u)/com.claude-setup-kit.token-monthly" >/dev/null 2>&1; then pass "monthly token report scheduled (1st, 09:00)"
+  else warn "monthly report plist exists but is not loaded: launchctl bootstrap gui/$(id -u) $PL"; fi
 fi
 if has rules; then
   [ -f "$CL/CLAUDE.md" ] && pass "~/.claude/CLAUDE.md present" || fail "~/.claude/CLAUDE.md missing"
