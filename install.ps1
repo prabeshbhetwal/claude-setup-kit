@@ -6,6 +6,7 @@
 #   .\install.ps1 -Only caveman,rtk       just these tools (dependencies are added)
 #   .\install.ps1 -List                   print the catalogue and exit
 # Other options: -Skip id,id  -CavemanMode lite|full|ultra  -ModelSelectorZip PATH
+#   -InstallMissing   install missing prerequisites (Python, Git, Node.js, uv, Claude Code CLI) without asking
 #
 # If scripts are blocked: powershell -ExecutionPolicy Bypass -File .\install.ps1
 # Needs Git for Windows: the kit's hooks run in Git Bash ("shell": "bash" is set on each hook).
@@ -15,7 +16,7 @@
 param(
   [switch]$Yes, [string[]]$Tiers, [string[]]$Only, [string[]]$Skip,
   [ValidateSet('', 'lite', 'full', 'ultra')][string]$CavemanMode = '',
-  [string]$ModelSelectorZip = '', [switch]$List
+  [string]$ModelSelectorZip = '', [switch]$List, [switch]$InstallMissing
 )
 $ErrorActionPreference = 'Continue'
 $KIT = $PSScriptRoot
@@ -63,11 +64,11 @@ function Describe($id, $n) {
   Write-Host "    What:  $($c.What)"; Write-Host "    Helps: $($c.Helps)"; Write-Host "    Needs: $($c.Needs)"
 }
 $TierTitle = @{
-  core = 'CORE: token savers + safety. No keys, no accounts, no paid services.'
-  memory = 'MEMORY: remembers decisions across sessions. Some need an account or an API key.'
-  routing = 'MODEL ROUTING: cheapest model and effort per task, lean helper agents.'
-  judge = 'JUDGE TOOLS: fast external yes/no triage. Need paid or free API keys.'
-  deliberation = 'DELIBERATION: second opinions from GPT, Gemini, Grok or OpenRouter. Needs at least one provider.'
+  core = 'CORE: the token savers and safety net. Free: no keys, no accounts. Recommended for everyone.'
+  memory = 'MEMORY: Claude remembers past chats and decisions. Some need a free account or a paid API key.'
+  routing = 'MODEL ROUTING: uses cheaper models where they do the job just as well. Free.'
+  judge = 'JUDGE TOOLS: fast outside yes/no checks over long lists and media. Need API keys (one paid, one with a free tier).'
+  deliberation = 'SECOND OPINIONS: ask GPT, Gemini, Grok or OpenRouter from inside Claude. Needs at least one of those accounts.'
 }
 
 # ---------------------------------------------------------------- selection (nothing changes until preflight passes)
@@ -116,41 +117,101 @@ foreach ($id in @($skipList)) {
   Drop $id
   foreach ($p in $DEPS) { if ($p[1] -eq $id -and (Has $p[0])) { Drop $p[0]; $skipList.Add($p[0]); Info "$((Item $p[0]).Name) skipped too (needs $((Item $id).Name))" } }
 }
+# Dependencies: asked, not silently added. Saying no leaves out the tool that needs it.
 foreach ($p in $DEPS) {
-  if ((Has $p[0]) -and -not (Has $p[1]) -and -not $skipList.Contains($p[1])) { Add $p[1]; Info "$((Item $p[0]).Name) needs $((Item $p[1]).Name): added" }
+  if ((Has $p[0]) -and -not (Has $p[1]) -and -not $skipList.Contains($p[1])) {
+    $a = (Item $p[0]).Name; $b = (Item $p[1]).Name
+    if (Ask "$a only works together with $b. Add $b as well? (No = leave out $a)" 'y') { Add $p[1]; Info "$b added" } else { Drop $p[0]; Info "$a left out" }
+  }
 }
 if ($script:Sel.Count -eq 0) { Write-Host 'Nothing selected. Nothing changed.'; exit 0 }
 if ((Has 'caveman') -and -not $CavemanMode) {
   $CavemanMode = 'ultra'
   if ($Interactive) { $a = Read-Host '  Caveman strength: lite, full, ultra [ultra]'; if ($a -in @('lite', 'full', 'ultra')) { $CavemanMode = $a } }
 }
+
+# ---------------------------------------------------------------- the changes, each asked for first (-Yes: all yes)
+$DoSettings = $true; $DoSched = $true
+if (Has 'rules') {
+  Write-Host ""
+  Write-Host 'Rules file: Claude reads ~\.claude\CLAUDE.md at the start of every chat. The kit''s version tells it when'
+  Write-Host 'to use each tool you picked; without it Claude often forgets they exist. Five short guides go in ~\.claude\guides\.'
+  if (Test-Path "$CL\CLAUDE.md") { Write-Host 'You already have a CLAUDE.md: it is kept as it is, and the kit''s version is saved next to it as CLAUDE.md.kit-new for you to merge.' }
+  if (-not (Ask 'Write the rules file and guides?' 'y')) { Drop 'rules'; Info 'rules file left out' }
+}
+if (@('rtk', 'safety', 'indexes', 'routing', 'cognee', 'jev') | Where-Object { Has $_ }) {
+  Write-Host ""
+  Write-Host 'Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command).'
+  Write-Host 'RTK, safe delete, auto indexes and the routing card only work through them. They are added to'
+  Write-Host '~\.claude\settings.json: the file is backed up first, nothing in it is removed or changed, only missing entries are added.'
+  if (-not (Ask 'Add the kit''s hooks to settings.json?' 'y')) { $DoSettings = $false; Info 'hooks not added: those tools stay installed but inactive until you re-run and say yes' }
+}
+if (Has 'measure') {
+  Write-Host ""
+  Write-Host 'Monthly report: on the 1st of each month at 09:00 Windows writes a token report (used, saved, would-have-used).'
+  Write-Host 'It reads local files only and uses no Claude tokens.'
+  if (-not (Ask 'Schedule the monthly report?' 'y')) { $DoSched = $false; Info 'monthly report not scheduled (run it by hand: python ~\.claude\hooks\token-monthly.py)' }
+}
+if ($script:Sel.Count -eq 0) { Write-Host 'Nothing selected. Nothing changed.'; exit 0 }
+Write-Host ""; Write-Host 'Ready to install:'; foreach ($id in $script:Sel) { Write-Host "  - $((Item $id).Name)" }
+if (-not (Ask 'Go ahead?' 'y')) { Write-Host 'Stopped. Nothing changed.'; exit 0 }
 Write-Host ""; Write-Host "Installing: $($script:Sel -join ' ')"
 
 # ---------------------------------------------------------------- preflight (before any change)
 if (-not ($env:OS -eq 'Windows_NT' -or $env:KIT_ALLOW_NON_WINDOWS -eq '1')) {
   Write-Host 'install.ps1 is for Windows. On macOS run ./install.sh.'; exit 1
 }
-$missing = New-Object System.Collections.Generic.List[string]
 function Cmd($n) { Get-Command $n -ErrorAction SilentlyContinue | Select-Object -First 1 }
-# The Microsoft Store "python" alias exists without Python installed: actually run it.
-$PY = $null
-foreach ($n in @('python', 'py', 'python3')) { if ((Cmd $n) -and (& $n -c 'import sys; print(sys.version_info[0])' 2>$null) -eq '3') { $PY = $n; break } }
-if (-not $PY) { $missing.Add('Python 3: winget install Python.Python.3.12 (tick "Add python.exe to PATH")') }
-$GitBash = $null
-foreach ($p in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", $env:CLAUDE_CODE_GIT_BASH_PATH)) {
-  if ($p -and (Test-Path $p)) { $GitBash = $p; break }
+# Each missing prerequisite is explained and offered to be installed for you (winget), in this order.
+$Fixes = [ordered]@{
+  python = @('Python 3', 'runs every script in this kit', 'winget install -e --id Python.Python.3.12 --override "/quiet PrependPath=1"')
+  git    = @('Git for Windows', 'gives Git Bash, the shell the kit''s hooks run in', 'winget install -e --id Git.Git')
+  claude = @('Claude Code command-line tool', 'lets this installer add plugins for you', 'irm https://claude.ai/install.ps1 | iex')
+  node   = @('Node.js', 'runs context-mode, CodeGraph and agentmemory', 'winget install -e --id OpenJS.NodeJS.LTS')
+  uv     = @('uv', 'installs Graphify (a Python tool) in its own space', 'winget install -e --id astral-sh.uv')
 }
-if (-not $GitBash -or -not (Cmd 'git')) { $missing.Add('Git for Windows (hooks run in Git Bash): winget install Git.Git') }
-$pluginIds = @('caveman', 'adhd', 'ponytail', 'context-mode', 'codegraph', 'supermemory', 'cognee', 'agentmemory', 'remember', 'model-selector', 'deliberation')
-if (($pluginIds | Where-Object { Has $_ }) -and -not (Cmd 'claude')) { $missing.Add('Claude Code CLI: https://docs.claude.com/en/docs/claude-code/setup') }
-if ((@('context-mode', 'codegraph', 'agentmemory') | Where-Object { Has $_ }) -and -not (Cmd 'node')) { $missing.Add('Node.js 20+: winget install OpenJS.NodeJS.LTS') }
-if ((Has 'graphify') -and -not ((Cmd 'uv') -or (Cmd 'pipx'))) { $missing.Add('uv: winget install astral-sh.uv') }
-if ((Has 'rtk') -and -not (Cmd 'rtk') -and -not (Cmd 'winget')) { $missing.Add('winget (App Installer from the Microsoft Store), used to install RTK') }
-if ($missing.Count) {
-  Write-Host 'Missing before anything can be installed:'; $missing | ForEach-Object { Write-Host "  - $_" }
-  Write-Host 'Install these, open a new PowerShell window, then run .\install.ps1 again. Nothing was changed.'
-  exit 1
+function Find-Prereqs {
+  # The Microsoft Store "python" alias exists without Python installed: actually run it.
+  $script:PY = $null
+  foreach ($n in @('python', 'py', 'python3')) { if ((Cmd $n) -and (& $n -c 'import sys; print(sys.version_info[0])' 2>$null) -eq '3') { $script:PY = $n; break } }
+  $script:GitBash = $null
+  foreach ($p in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", $env:CLAUDE_CODE_GIT_BASH_PATH)) {
+    if ($p -and (Test-Path $p)) { $script:GitBash = $p; break }
+  }
+  $pluginIds = @('caveman', 'adhd', 'ponytail', 'context-mode', 'codegraph', 'supermemory', 'cognee', 'agentmemory', 'remember', 'model-selector', 'deliberation')
+  $lack = @()
+  if (-not $script:PY) { $lack += 'python' }
+  if (-not $script:GitBash -or -not (Cmd 'git')) { $lack += 'git' }
+  if (($pluginIds | Where-Object { Has $_ }) -and -not (Cmd 'claude')) { $lack += 'claude' }
+  if ((@('context-mode', 'codegraph', 'agentmemory') | Where-Object { Has $_ }) -and -not (Cmd 'node')) { $lack += 'node' }
+  if ((Has 'graphify') -and -not ((Cmd 'uv') -or (Cmd 'pipx'))) { $lack += 'uv' }
+  return , $lack
 }
+$lack = Find-Prereqs
+if ($lack.Count) {
+  Write-Host ""; Write-Host 'Before the kit can install, this PC needs:'
+  foreach ($k in $lack) { Write-Host "  - $($Fixes[$k][0]): $($Fixes[$k][1])" }
+  if (($Interactive -or $InstallMissing) -and -not (Cmd 'winget') -and ($lack | Where-Object { $_ -ne 'claude' })) {
+    Write-Host '  winget is missing: install "App Installer" from the Microsoft Store first.'
+  } elseif ($Interactive -or $InstallMissing) {
+    foreach ($k in $lack) {
+      if ($InstallMissing -or (Ask "Install $($Fixes[$k][0]) for you now?" 'y')) {
+        Write-Host "  running: $($Fixes[$k][2])"
+        try { Invoke-Expression $Fixes[$k][2] } catch { Write-Host "  that did not finish cleanly: $_" }
+        # New installs change PATH in the registry; reload it so this run sees them.
+        $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ";$BIN"
+      } else { Write-Host "  Skipped $($Fixes[$k][0])." }
+    }
+    $lack = Find-Prereqs
+  }
+  if ($lack.Count) {
+    Write-Host ""; Write-Host 'Still missing:'; foreach ($k in $lack) { Write-Host "  - $($Fixes[$k][0])   install with: $($Fixes[$k][2])" }
+    Write-Host 'Install these (or run .\install.ps1 again and answer yes), open a new PowerShell window, then re-run. Nothing of the kit was changed.'
+    exit 1
+  }
+  Ok 'all prerequisites present'
+}
+if ((Has 'rtk') -and -not (Cmd 'rtk') -and -not (Cmd 'winget')) { Write-Host 'RTK needs winget (App Installer from the Microsoft Store). Install it, then re-run. Nothing was changed.'; exit 1 }
 foreach ($d in @($CL, "$CL\hooks", "$CL\agents", "$CL\guides", "$CL\rules", "$CL\kit", $BIN)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
 $env:KIT_RTK = 'rtk'
 
@@ -274,10 +335,13 @@ if (Has 'measure') {
   if (-not (Test-Path "$CL\cache\token-compare\change-date")) { [IO.File]::WriteAllText("$CL\cache\token-compare\change-date", (Get-Date -Format 'yyyy-MM-dd')) }
   # Freeze the week before install now, while those transcripts still exist.
   if (-not (Test-Path "$CL\cache\token-compare\before-week.json")) { & $PY "$CL\hooks\token-compare.py" *> $null; if ($LASTEXITCODE -eq 0) { Ok 'token baseline frozen (week before install)' } }
-  # Monthly report: Task Scheduler runs token-monthly.py at 09:00 on the 1st. No Claude tokens. /F makes re-runs safe.
-  $pyw = (Get-Command pythonw -ErrorAction SilentlyContinue | Select-Object -First 1).Source; if (-not $pyw) { $pyw = (Get-Command $PY).Source }
-  schtasks /Create /F /SC MONTHLY /D 1 /ST 09:00 /TN 'claude-setup-kit token-monthly' /TR "`"$pyw`" `"$CL\hooks\token-monthly.py`"" *> $null
-  if ($LASTEXITCODE -eq 0) { Ok 'monthly token report scheduled (1st of each month, 09:00; report in ~\.claude\cache\token-compare\monthly)' } else { Fail 'schtasks /Create claude-setup-kit token-monthly' }
+  if ($DoSched) {
+    Remove-Item "$CL\kit\no-monthly-schedule" -ErrorAction SilentlyContinue
+    # Monthly report: Task Scheduler runs token-monthly.py at 09:00 on the 1st. No Claude tokens. /F makes re-runs safe.
+    $pyw = (Get-Command pythonw -ErrorAction SilentlyContinue | Select-Object -First 1).Source; if (-not $pyw) { $pyw = (Get-Command $PY).Source }
+    schtasks /Create /F /SC MONTHLY /D 1 /ST 09:00 /TN 'claude-setup-kit token-monthly' /TR "`"$pyw`" `"$CL\hooks\token-monthly.py`"" *> $null
+    if ($LASTEXITCODE -eq 0) { Ok 'monthly token report scheduled (1st of each month, 09:00; report in ~\.claude\cache\token-compare\monthly)' } else { Fail 'schtasks /Create claude-setup-kit token-monthly' }
+  } else { New-Item -ItemType File -Force -Path "$CL\kit\no-monthly-schedule" | Out-Null }
 }
 
 # ---------------------------------------------------------------- memory
@@ -323,9 +387,11 @@ if (Has 'deliberation') {
 }
 
 # ---------------------------------------------------------------- settings.json (merge, never overwrite)
-Write-Host ""; Write-Host 'Merging hooks into ~\.claude\settings.json (backup written first if anything changes):'
-& $PY (Join-Path $KIT 'lib\merge_settings.py') "$CL\settings.json" (Join-Path $KIT 'lib\hooks.windows.json') @($script:Sel)
-if ($LASTEXITCODE -ne 0) { Fail 'settings merge' }
+if ($DoSettings) {
+  Write-Host ""; Write-Host 'Merging hooks into ~\.claude\settings.json (backup written first if anything changes):'
+  & $PY (Join-Path $KIT 'lib\merge_settings.py') "$CL\settings.json" (Join-Path $KIT 'lib\hooks.windows.json') @($script:Sel)
+  if ($LASTEXITCODE -ne 0) { Fail 'settings merge' }
+} else { Todo 'Hooks were not added (you said no): re-run .\install.ps1 and say yes to activate RTK, safe delete, auto indexes and the routing card.' }
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ((@('safety', 'jev', 'mjudge') | Where-Object { Has $_ }) -and -not (($userPath -split ';') -contains $BIN)) {
   Todo "Add $(Short $BIN) to your user PATH: [Environment]::SetEnvironmentVariable('Path', `"`$([Environment]::GetEnvironmentVariable('Path','User'));$BIN`", 'User')   then open a new window. trashmv and jev live there."

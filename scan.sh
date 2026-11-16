@@ -16,7 +16,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-files=$(find . -type f ! -path './.git/*' ! -path './private/*' ! -name scan.sh | sort)  # private/ is gitignored, never published
+# Exactly what git would publish (tracked + new, minus .gitignore); outside a git repo, every file but private/.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  files=$(git ls-files --cached --others --exclude-standard | grep -v '^scan.sh$' | sed 's|^|./|' | sort)
+else
+  files=$(find . -type f ! -path './.git/*' ! -path './private/*' ! -name scan.sh | sort)
+fi
 hits=0
 check() { # check LABEL PATTERN [grep flags]
   local out rc

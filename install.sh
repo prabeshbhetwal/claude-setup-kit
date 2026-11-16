@@ -7,6 +7,7 @@
 #   ./install.sh --only caveman,rtk   just these tools (dependencies are added)
 #   ./install.sh --list               print the catalogue and exit
 # Other options: --skip id,id  --caveman-mode lite|full|ultra  --model-selector-zip PATH
+#   --install-missing   install missing prerequisites (Homebrew, Node.js, uv, Claude Code CLI) without asking
 #
 # Never overwrites: settings.json is merged (backup first); your own CLAUDE.md, guides and agents are
 # kept, and the kit's version is written next to them as *.kit-new. Third-party plugins and CLIs are
@@ -21,7 +22,8 @@ TIERS_ALL="core memory routing judge deliberation"
 SELECTED=" "
 TODO=""
 FAILED=""
-MODE=ask; TIERS=""; ONLY=""; SKIP=""; MS_ZIP=""; CAVEMODE=""
+MODE=ask; TIERS=""; ONLY=""; SKIP=""; MS_ZIP=""; CAVEMODE=""; INSTALL_MISSING=""
+TTY=0; { : </dev/tty; } 2>/dev/null && TTY=1   # a keyboard to answer questions on
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  ok    %s\n' "$*"; }
@@ -39,7 +41,7 @@ field() { awk -F'|' -v id="$1" -v n="$2" '$1==id {print $n}' "$CAT"; }
 tier_ids() { awk -F'|' -v t="$1" '!/^#/ && $2==t {print $1}' "$CAT"; }
 csv() { printf '%s' "$1" | tr ',' ' '; }
 
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0; }
 
 val() { [ -n "${2:-}" ] && [ "${2#--}" = "$2" ] || { say "$1 needs a value (see --help)"; exit 2; }; }
 while [ $# -gt 0 ]; do
@@ -50,6 +52,7 @@ while [ $# -gt 0 ]; do
     --skip) val "$1" "${2:-}"; SKIP=$(csv "$2"); shift ;;
     --caveman-mode) val "$1" "${2:-}"; CAVEMODE=$2; shift ;;
     --model-selector-zip) val "$1" "${2:-}"; MS_ZIP=$2; shift ;;
+    --install-missing) INSTALL_MISSING=1 ;;
     --list) awk -F'|' '!/^#/ {printf "%-15s %-13s %s\n    %s\n", $1, $2, $3, $5}' "$CAT"; exit 0 ;;
     -h|--help) usage ;;
     *) say "Unknown option: $1"; exit 2 ;;
@@ -102,11 +105,11 @@ describe() { # describe ID [NUMBER]
 
 tier_title() {
   case "$1" in
-    core) echo "CORE: token savers + safety. No keys, no accounts, no paid services." ;;
-    memory) echo "MEMORY: remembers decisions across sessions. Some need an account or an API key." ;;
-    routing) echo "MODEL ROUTING: cheapest model and effort per task, lean helper agents." ;;
-    judge) echo "JUDGE TOOLS: fast external yes/no triage. Need paid or free API keys." ;;
-    deliberation) echo "DELIBERATION: second opinions from GPT, Gemini, Grok or OpenRouter. Needs at least one provider." ;;
+    core) echo "CORE: the token savers and safety net. Free: no keys, no accounts. Recommended for everyone." ;;
+    memory) echo "MEMORY: Claude remembers past chats and decisions. Some need a free account or a paid API key." ;;
+    routing) echo "MODEL ROUTING: uses cheaper models where they do the job just as well. Free." ;;
+    judge) echo "JUDGE TOOLS: fast outside yes/no checks over long lists and media. Need API keys (one paid, one with a free tier)." ;;
+    deliberation) echo "SECOND OPINIONS: ask GPT, Gemini, Grok or OpenRouter from inside Claude. Needs at least one of those accounts." ;;
   esac
 }
 
@@ -147,10 +150,14 @@ for id in $SKIP; do
     [ "$b" = "$id" ] && has "$a" && { drop "$a"; SKIP="$SKIP $a"; info "$(field "$a" 3) skipped too (needs $(field "$b" 3))"; }
   done
 done
-# Dependencies.
+# Dependencies: asked, not silently added. Saying no leaves out the tool that needs it.
 for pair in indexes:codegraph indexes:graphify mjudge:jev model-selector:routing; do
   a=${pair%%:*}; b=${pair#*:}
-  has "$a" && ! has "$b" && { add "$b"; info "$(field "$a" 3) needs $(field "$b" 3): added"; }
+  has "$a" && ! has "$b" || continue
+  say ""
+  if ask "$(field "$a" 3) only works together with $(field "$b" 3). Add $(field "$b" 3) as well? (No = leave out $(field "$a" 3))" y; then
+    add "$b"; info "$(field "$b" 3) added"
+  else drop "$a"; info "$(field "$a" 3) left out"; fi
 done
 [ "$SELECTED" = " " ] && { say "Nothing selected. Nothing changed."; exit 0; }
 if has caveman && [ -z "$CAVEMODE" ]; then
@@ -162,37 +169,101 @@ if has caveman && [ -z "$CAVEMODE" ]; then
 fi
 case "$CAVEMODE" in ''|lite|full|ultra) ;; *) info "Caveman mode '$CAVEMODE' not known: using ultra"; CAVEMODE=ultra ;; esac
 
+# ---------------------------------------------------------------- the changes, each asked for first (--yes: all yes)
+DO_SETTINGS=1; DO_SCHED=1
+if has rules; then
+  say ""
+  say "Rules file: Claude reads ~/.claude/CLAUDE.md at the start of every chat. The kit's version tells it when"
+  say "to use each tool you picked; without it Claude often forgets they exist. Five short guides go in ~/.claude/guides/."
+  [ -f "$CL/CLAUDE.md" ] && say "You already have a CLAUDE.md: it is kept as it is, and the kit's version is saved next to it as CLAUDE.md.kit-new for you to merge."
+  ask "Write the rules file and guides?" y || { drop rules; info "rules file left out"; }
+fi
+for id in rtk safety indexes routing cognee jev; do
+  has $id || continue
+  say ""
+  say "Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command)."
+  say "RTK, safe delete, auto indexes and the routing card only work through them. They are added to"
+  say "~/.claude/settings.json: the file is backed up first, nothing in it is removed or changed, only missing entries are added."
+  ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
+  break
+done
+if has measure; then
+  say ""
+  say "Monthly report: on the 1st of each month at 09:00 your Mac writes a token report (used, saved, would-have-used)"
+  say "and shows a notification. It reads local files only and uses no Claude tokens."
+  ask "Schedule the monthly report?" y || { DO_SCHED=0; info "monthly report not scheduled (run it by hand: python3 ~/.claude/hooks/token-monthly.py)"; }
+fi
+[ "$SELECTED" = " " ] && { say "Nothing selected. Nothing changed."; exit 0; }
+say ""; say "Ready to install:"
+for id in $SELECTED; do say "  - $(field "$id" 3)"; done
+ask "Go ahead?" y || { say "Stopped. Nothing changed."; exit 0; }
 say ""; say "Installing:$SELECTED"
 
 # ---------------------------------------------------------------- preflight (before any change)
-missing=""; BREWHINT=""
 if [ "$(uname -s)" != Darwin ]; then
   say "This kit is tested on macOS only (it uses the Keychain, osascript, BSD stat and Homebrew)."
   say "Set KIT_ALLOW_NON_MAC=1 to try anyway."; [ "${KIT_ALLOW_NON_MAC:-}" = 1 ] || exit 1
 fi
-need() { command -v "$1" >/dev/null 2>&1 || missing="$missing
-  - $1: $2"; }
-# /usr/bin/python3 and git exist on every Mac but are stubs until Command Line Tools are installed.
-python3 -c pass >/dev/null 2>&1 && git --version >/dev/null 2>&1 || missing="$missing
-  - Xcode Command Line Tools (python3, git): xcode-select --install"
-for id in caveman adhd ponytail context-mode codegraph supermemory cognee agentmemory remember model-selector deliberation; do
-  has $id && { need claude "install Claude Code: https://docs.claude.com/en/docs/claude-code/setup"; break; }
-done
-command -v brew >/dev/null 2>&1 || BREWHINT=" (no Homebrew yet: install it from https://brew.sh, or use the tool's own installer)"
-for id in context-mode codegraph agentmemory; do has $id && { need node "install Node.js 20+: brew install node"; break; }; done
-has codegraph && need npm "comes with Node.js: brew install node"
-if has graphify && ! command -v uv >/dev/null 2>&1 && ! command -v pipx >/dev/null 2>&1; then
-  missing="$missing
-  - uv or pipx: brew install uv"
-fi
-if has rtk && ! command -v rtk >/dev/null 2>&1 && [ ! -x "$BIN/rtk" ] && ! command -v brew >/dev/null 2>&1; then
-  need curl "needed for the RTK install script"
-fi
-if [ -n "$missing" ]; then
-  say "Missing before anything can be installed:$missing"
-  case "$missing" in *"brew install"*) [ -n "$BREWHINT" ] && say "  Note: hints say brew install$BREWHINT" ;; esac
-  say "Install these, then run ./install.sh again. Nothing was changed."
-  exit 1
+# Prerequisites. Each missing one is explained, and offered to be installed for you (in order: Apple tools,
+# Homebrew, then the rest). Nothing of the kit itself is installed until all of them are present.
+# Override the install commands with KIT_CMD_<NAME> (used by the tests).
+CMD_CLT=${KIT_CMD_CLT:-"xcode-select --install"}
+CMD_BREW=${KIT_CMD_BREW:-'/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'}
+CMD_CLAUDE=${KIT_CMD_CLAUDE:-"curl -fsSL https://claude.ai/install.sh | bash"}
+CMD_NODE=${KIT_CMD_NODE:-"brew install node"}
+CMD_UV=${KIT_CMD_UV:-"brew install uv"}
+uses_claude() { for id in caveman adhd ponytail context-mode codegraph supermemory cognee agentmemory remember model-selector deliberation; do has $id && return 0; done; return 1; }
+uses_node() { has context-mode || has codegraph || has agentmemory; }
+check_prereqs() { # fills LACK with "key|name|why" lines, in install order
+  LACK=""
+  # /usr/bin/python3 and git exist on every Mac but are stubs until Apple's Command Line Tools are installed.
+  python3 -c pass >/dev/null 2>&1 && git --version >/dev/null 2>&1 || LACK="$LACK
+CLT|Apple Command Line Tools|gives your Mac python3 and git; every script in this kit uses them (free, from Apple)"
+  if { uses_node && ! command -v node >/dev/null 2>&1; } || { has graphify && ! command -v uv >/dev/null 2>&1 && ! command -v pipx >/dev/null 2>&1; }; then
+    command -v brew >/dev/null 2>&1 || LACK="$LACK
+BREW|Homebrew|the standard free installer for Mac developer tools; used here to get Node.js and uv (it asks for your Mac password)"
+  fi
+  uses_claude && ! command -v claude >/dev/null 2>&1 && LACK="$LACK
+CLAUDE|Claude Code command-line tool|lets this installer add plugins for you; the Claude app and the terminal share it"
+  uses_node && ! command -v node >/dev/null 2>&1 && LACK="$LACK
+NODE|Node.js|runs context-mode, CodeGraph and agentmemory"
+  has graphify && ! command -v uv >/dev/null 2>&1 && ! command -v pipx >/dev/null 2>&1 && LACK="$LACK
+UV|uv|installs Graphify (a Python tool) in its own space, so it cannot clash with anything else"
+  [ -z "$LACK" ]
+}
+fix_one() { # fix_one KEY: run its install command, then put the new tool on PATH for the rest of this run
+  local cmd; eval "cmd=\$CMD_$1"
+  say "  running: $cmd"
+  if [ "$TTY" = 1 ]; then bash -c "$cmd" </dev/tty; else bash -c "$cmd"; fi || { say "  that did not finish cleanly"; return 1; }
+  case "$1" in
+    CLT) [ "$TTY" = 1 ] || { say "  Finish the Apple window that opened, then run the installer again."; return 1; }
+         while ! { python3 -c pass >/dev/null 2>&1 && git --version >/dev/null 2>&1; }; do
+           printf '  A window from Apple opened. Click Install, wait until it says it is done, then press Enter (q to stop): '
+           read -r a </dev/tty; [ "$a" = q ] && return 1
+         done ;;
+    BREW) for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$b" ] && eval "$("$b" shellenv)"; done ;;
+    CLAUDE) PATH="$HOME/.local/bin:$PATH" ;;
+  esac
+}
+if ! check_prereqs; then
+  say ""; say "Before the kit can install, this Mac needs:"
+  printf '%s\n' "$LACK" | while IFS='|' read -r k n w; do [ -n "$k" ] && say "  - $n: $w"; done
+  if { [ "$MODE" = ask ] && [ "$TTY" = 1 ]; } || [ "$INSTALL_MISSING" = 1 ]; then
+    for k in $(printf '%s\n' "$LACK" | cut -d'|' -f1); do
+      check_prereqs && break
+      case "$LACK" in *"$k|"*) ;; *) continue ;; esac  # installed by an earlier step
+      n=$(printf '%s\n' "$LACK" | grep "^$k|" | cut -d'|' -f2)
+      if [ "$INSTALL_MISSING" = 1 ] || ask "Install $n for you now?" y; then fix_one "$k" || say "  $n is still missing."
+      else say "  Skipped $n."; fi
+    done
+  fi
+  if ! check_prereqs; then
+    say ""; say "Still missing:"
+    printf '%s\n' "$LACK" | while IFS='|' read -r k n w; do [ -n "$k" ] && { eval "c=\$CMD_$k"; say "  - $n   install with: $c"; }; done
+    say "Install these (or run ./install.sh again and answer yes), then re-run. Nothing of the kit was changed."
+    exit 1
+  fi
+  ok "all prerequisites present"
 fi
 mkdir -p "$CL/hooks" "$CL/agents" "$CL/guides" "$CL/rules" "$BIN" "$CL/kit"; export KIT_RTK=rtk
 
@@ -315,6 +386,7 @@ if has measure; then
   # Freeze the week before install now, while those transcripts still exist (Claude Code prunes old ones).
   [ -f "$CL/cache/token-compare/before-week.json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (week before install)"; }
   # Monthly report: launchd runs token-monthly.py at 09:00 on the 1st (a missed run fires at next wake). No Claude tokens.
+  if [ "$DO_SCHED" = 0 ]; then touch "$CL/kit/no-monthly-schedule"; else rm -f "$CL/kit/no-monthly-schedule"
   LA="$HOME/Library/LaunchAgents"; LBL=com.claude-setup-kit.token-monthly; PL="$LA/$LBL.plist"; mkdir -p "$LA"
   cat > "$PL.tmp" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -335,6 +407,7 @@ PLIST
       launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
       launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "monthly token report scheduled (1st of each month, 09:00)" || fail "launchctl bootstrap $PL"
     else info "test HOME: monthly schedule written to $PL, not loaded"; fi
+  fi
   fi
 fi
 
@@ -392,8 +465,10 @@ if has deliberation; then
 fi
 
 # ---------------------------------------------------------------- settings.json (merge, never overwrite)
-say ""; say "Merging hooks into ~/.claude/settings.json (backup written first if anything changes):"
-python3 "$KIT/lib/merge_settings.py" "$CL/settings.json" "$KIT/lib/hooks.json" $SELECTED || fail "settings merge"
+if [ "$DO_SETTINGS" = 1 ]; then
+  say ""; say "Merging hooks into ~/.claude/settings.json (backup written first if anything changes):"
+  python3 "$KIT/lib/merge_settings.py" "$CL/settings.json" "$KIT/lib/hooks.json" $SELECTED || fail "settings merge"
+else todo "Hooks were not added (you said no): re-run ./install.sh and say yes to activate RTK, safe delete, auto indexes and the routing card."; fi
 for id in rtk codegraph graphify safety jev mjudge; do
   has $id || continue
   case ":$PATH:" in *":$BIN:"*) ;; *) todo "Add ~/.local/bin to PATH (in ~/.zprofile: export PATH=\"\$HOME/.local/bin:\$PATH\"), then open a new terminal. trashmv, jev, codegraph and graphify live there." ;; esac
