@@ -8,8 +8,8 @@ import type { Judged } from './engine'
 import { explicitChoice, isFollowUp, rulesVerdict } from './judge'
 import { decide, handoffBand, handoffThreshold, isPrivateFolder, placeTip, rulesFloor, tierOf, TIERS } from './policy'
 import type { Decision, Effort, JudgeInput, Tier, Verdict, Warm } from './policy'
-import { addUsage, estSavingUsd } from './prices'
-import type { Usage } from './prices'
+import { addCosts, addUsage, asIfOn, estSavingUsd, noCosts, priceOf } from './prices'
+import type { Costs, Usage } from './prices'
 import type { PilotFlags, PilotView } from '../types'
 
 export type Options = {
@@ -48,6 +48,11 @@ export type Rec = {
   verdictEffort?: Effort
   menuModel?: string
   usage: Usage
+  /** The turn's requests after the first, each priced on every tier. */
+  costs: Costs
+  /** The first request: what a switch costs or saves depends on whose cache was warm. */
+  first?: Usage
+  warmAtStart: Tier[]
   contextTokens: number
   ran?: string
   isFailed?: boolean
@@ -131,6 +136,8 @@ export async function begin($: EngineInterface, o: Options, f: PilotFlags, turnI
     leadMs: 0,
     tip: null,
     usage: {},
+    costs: noCosts(),
+    warmAtStart: [],
     contextTokens: 0,
   }
   turnCount += 1
@@ -188,6 +195,7 @@ export async function settle($: EngineInterface, o: Options, f: PilotFlags, rec:
   const { verdict, source } = await verdictFor($, o, rec, menuTier)
   rec.verdictEffort = verdict.effort
   const cache = { contextTokens: (await $.session.usage()).context.tokens ?? 0, warm, now: await $.clock.now(), cacheTtlMs: CACHE_TTL_MS }
+  rec.warmAtStart = TIERS.filter(t => { const w = warm[t]; return w !== undefined && cache.now - w.at < CACHE_TTL_MS })
   const decision = decide({
     verdict,
     source,
@@ -207,6 +215,8 @@ export async function settle($: EngineInterface, o: Options, f: PilotFlags, rec:
 export function record(rec: Rec, usage: (Usage & { model?: string }) | null | undefined): void {
   if (!usage) return
   rec.usage = addUsage(rec.usage, usage)
+  if (rec.first) rec.costs = addCosts(rec.costs, usage)
+  else rec.first = usage
   if (usage.model) rec.ran = usage.model
   rec.contextTokens = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)
 }
@@ -238,6 +248,10 @@ export async function finish($: EngineInterface, o: Options, turnId: string, rec
     offeredBand = Math.max(offeredBand, band)
   }
 
+  // Each tier's cost for the turn: the ran tier as billed; any other as if its own cache state applied.
+  const costOn = (t: Tier): number =>
+    rec.costs[t] + (rec.first ? priceOf(t === ranTier ? rec.first : asIfOn(rec.first, rec.warmAtStart.includes(t)), t) : 0)
+  const costs = { haiku: costOn('haiku'), sonnet: costOn('sonnet'), opus: costOn('opus'), fable: costOn('fable') }
   const j = rec.judgedOut
   const ranFrom = row ? 'transcript' : ranModel ? 'api' : null
   await appendLog($, {
@@ -260,11 +274,14 @@ export async function finish($: EngineInterface, o: Options, turnId: string, rec
     judge_wait_ms: rec.waitedMs,
     judge_lead_ms: rec.leadMs,
     judge_fail: j?.fail ?? null,
-    est_saving_usd: ranModel === null ? 0 : estSavingUsd(rec.usage, menuTier, ranTier, j?.usage),
+    est_saving_usd: ranModel === null ? 0 : estSavingUsd(costs, menuTier, ranTier, j?.usage),
     // In shadow mode nothing was applied: what the pick would have saved on the same tokens.
-    est_saving_if_applied_usd: o.isShadow && d.tier ? estSavingUsd(rec.usage, menuTier, d.tier, undefined) : null,
+    est_saving_if_applied_usd: o.isShadow && d.tier ? estSavingUsd(costs, menuTier, d.tier, undefined) : null,
     usage: rec.usage,
+    cost_usd: Math.round(costs[ranTier] * 1e6) / 1e6,
     place_tip: rec.tip,
+    context_tokens: rec.contextTokens,
+    handoff_offer_tokens: handoffTokens,
     prompt_chars: rec.text.length,
   }).catch(() => undefined)
 

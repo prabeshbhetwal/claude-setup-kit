@@ -2,7 +2,9 @@ import { expect, test } from 'claude-code/testing'
 
 import { agentFileNamesModel, agentTier, decide, estTurnCost, handoffBand, handoffThreshold, isPrivateFolder, placeCosts, placeTip, rulesFloor, spawnNote, tierOf, tierUp } from './policy'
 import type { DecideInput, Verdict } from './policy'
-import { estSavingUsd, priceOf } from './prices'
+import { addCosts, asIfOn, estSavingUsd, noCosts, priceOf } from './prices'
+
+const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-7
 
 const verdict = (tier: Verdict['tier'], confidence = 0.9, effort: Verdict['effort'] = 'medium'): Verdict => ({ tier, effort, confidence, reason: 'r' })
 const HOUR = 3_600_000
@@ -69,15 +71,27 @@ test('a big warm conversation stays put when the lower tier would cost more to l
   expect(d.reason.includes('cheaper')).toBe(true)
 })
 
-test('haiku is cheap enough to switch to even from a warm opus conversation', async () => {
+test('a short lookup in a long chat warm on opus stays on opus: re-writing 150k tokens on haiku costs more', async () => {
   const d = decide(base({ verdict: verdict('haiku'), contextTokens: 150_000, warm: { opus: { at: 10 * HOUR - 60_000, tokens: 150_000 } } }))
+  expect(d.tier).toBe('opus')
+})
+
+test('in a small chat haiku is cheap enough to switch to even from a warm opus cache', async () => {
+  const d = decide(base({ verdict: verdict('haiku'), contextTokens: 20_000, warm: { opus: { at: 10 * HOUR - 60_000, tokens: 20_000 } } }))
   expect(d.tier).toBe('haiku')
 })
 
 test('a lower need that persists is eventually worth the switch', async () => {
-  const stay = base({ verdict: verdict('sonnet'), contextTokens: 150_000, warm: { opus: { at: 10 * HOUR - 60_000, tokens: 150_000 } } })
+  const stay = base({ verdict: verdict('sonnet'), contextTokens: 30_000, warm: { opus: { at: 10 * HOUR - 60_000, tokens: 30_000 } } })
   expect(decide({ ...stay, lowerStreak: 0 }).tier).toBe('opus')
   expect(decide({ ...stay, lowerStreak: 3 }).tier).toBe('sonnet')
+})
+
+test('a saving counts the cache re-write a switch causes', async () => {
+  const first = { input_tokens: 5, output_tokens: 300, cache_read_input_tokens: 150_000 }
+  // Ran on opus, warm. Haiku would have written the 150k afresh on its long-prompt card.
+  expect(priceOf(asIfOn(first, false), 'haiku') > priceOf(first, 'opus')).toBe(true)
+  expect(near(priceOf(asIfOn(first, true), 'opus'), priceOf(first, 'opus'))).toBe(true)
 })
 
 test('an expired cache holds nobody', async () => {
@@ -128,12 +142,24 @@ test('turn cost: a warm cache is a cheap read, a cold one a full write', async (
 })
 
 test('prices and the saving estimate', async () => {
-  const u = { input_tokens: 1_000_000, output_tokens: 100_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
-  expect(priceOf(u, 'opus')).toBe(6)
-  expect(priceOf(u, 'haiku')).toBe(0.15)
-  expect(estSavingUsd(u, 'opus', 'haiku', undefined)).toBe(5.85)
-  expect(estSavingUsd(u, 'opus', 'opus', { input_tokens: 1000, output_tokens: 100 }) < 0).toBe(true)
-  expect(estSavingUsd(u, 'sonnet', 'opus', undefined) < 0).toBe(true)
+  const short = { input_tokens: 50_000, output_tokens: 10_000 }
+  expect(near(priceOf(short, 'opus'), 0.4)).toBe(true)
+  expect(near(priceOf(short, 'haiku'), 0.01)).toBe(true)
+  const c = addCosts(noCosts(), short)
+  expect(estSavingUsd(c, 'opus', 'haiku', undefined)).toBe(0.39)
+  expect(estSavingUsd(c, 'opus', 'opus', { input_tokens: 1000, output_tokens: 100 }) < 0).toBe(true)
+  expect(estSavingUsd(c, 'sonnet', 'opus', undefined) < 0).toBe(true)
+})
+
+test('prices match what the engine billed on a live run (1-hour cache writes, Haiku long-prompt card)', async () => {
+  // Two Haiku 5.5 requests from a live Claude Code run; the engine's total_cost_usd was 0.1241726.
+  const r1 = { input_tokens: 2, output_tokens: 51, cache_read_input_tokens: 0, cache_creation_input_tokens: 117_772 }
+  const r2 = { input_tokens: 2, output_tokens: 7, cache_read_input_tokens: 117_772, cache_creation_input_tokens: 365 }
+  const c = addCosts(addCosts(noCosts(), r1), r2)
+  expect(near(c.haiku, 0.1241726)).toBe(true)
+  // Each request is priced on its own prompt: one long prompt must not push short ones onto the long card.
+  expect(near(priceOf({ input_tokens: 90_000 }, 'haiku'), 0.009)).toBe(true)
+  expect(near(priceOf({ input_tokens: 110_000 }, 'haiku'), 0.055)).toBe(true)
 })
 
 test('sub-agents: unsure goes up; an agent file that names a model is detected', async () => {

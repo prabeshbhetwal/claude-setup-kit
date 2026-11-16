@@ -59,39 +59,65 @@ async function askJev($: EngineInterface, input: JudgeInput, timeoutMs: number):
   return undefined
 }
 
-/** Asks the judges in order; the rules answer when none can, or none may, be asked. */
+type HaikuOut = { verdict?: Verdict; usage?: Usage; fail: string }
+
+/** Asks the small model through the engine; never throws. */
+async function askHaiku($: EngineInterface, input: JudgeInput, model: string, timeoutMs: number): Promise<HaikuOut> {
+  try {
+    const r = await $.model.complete({ model, system: RUBRIC, prompt: judgePrompt(input), effort: 'low', maxTokens: 400, timeoutMs })
+    if (!r.isAnswered) return { usage: r.usage, fail: r.reason === 'aborted' ? 'timeout' : r.reason }
+    const verdict = parseJudgeReply(r.text)
+    return verdict ? { verdict, usage: r.usage, fail: '' } : { usage: r.usage, fail: 'unparseable' }
+  } catch {
+    return { fail: 'rejected' } // a request the engine refused to send
+  }
+}
+
+/** The first promise to settle with a value; undefined when every one settles without. */
+export function firstOf<T>(ps: Promise<T | undefined>[]): Promise<T | undefined> {
+  return new Promise(resolve => {
+    let left = ps.length
+    const done = (v: T | undefined) => {
+      if (v !== undefined) resolve(v)
+      else if (--left === 0) resolve(undefined)
+    }
+    for (const p of ps) p.then(done, () => done(undefined))
+    if (left === 0) resolve(undefined)
+  })
+}
+
+// Jev usually answers in about half a second. Past this, Haiku is asked as well and the
+// first answer wins, so a slow Jev never leaves the turn to the rules.
+export const HEDGE_MS = 1200
+
+/** Asks the judges: Jev first, Haiku too if Jev is slow or fails; the rules when neither answers. */
 export async function judge($: EngineInterface, input: JudgeInput, o: JudgeOptions): Promise<Judged> {
   if (o.isPrivate) return { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: 0, fail: 'privacy' }
   const t0 = await $.clock.now()
-  let fail = 'no judge'
-  let usage: Usage | undefined
-  if (o.chain.includes('jev')) {
-    const verdict = await askJev($, input, Math.min(o.budgetMs, 3000))
-    if (verdict) return { verdict, source: 'judge', by: 'jev', ms: (await $.clock.now()) - t0 }
-    fail = 'jev unavailable'
+  const ms = async () => (await $.clock.now()) - t0
+  const hasJev = o.chain.includes('jev') && !isJevOff
+  const jev = hasJev ? askJev($, input, Math.max(o.budgetMs, 3000)) : Promise.resolve(undefined)
+  if (hasJev) {
+    const early = await Promise.race([jev, $.clock.sleep(HEDGE_MS).then(() => undefined)])
+    if (early) return { verdict: early, source: 'judge', by: 'jev', ms: await ms() }
   }
-  if (o.chain.includes('haiku')) try {
-    fail = 'rejected'
-    const r = await $.model.complete({
-      model: o.model,
-      system: RUBRIC,
-      prompt: judgePrompt(input),
-      effort: 'low',
-      maxTokens: 400,
-      timeoutMs: Math.max(200, Math.round(o.budgetMs)),
-    })
-    usage = r.usage
-    if (r.isAnswered) {
-      const verdict = parseJudgeReply(r.text)
-      if (verdict) return { verdict, source: 'judge', by: 'haiku', ms: (await $.clock.now()) - t0, usage }
-      fail = 'unparseable'
-    } else {
-      fail = r.reason === 'aborted' ? 'timeout' : r.reason
-    }
-  } catch {
-    // a request the engine refused to send: the rules decide
+  if (!o.chain.includes('haiku')) {
+    const late = await jev
+    return late
+      ? { verdict: late, source: 'judge', by: 'jev', ms: await ms() }
+      : { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: await ms(), fail: hasJev ? 'jev unavailable' : 'no judge' }
   }
-  return { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: (await $.clock.now()) - t0, usage, fail }
+  const haiku = askHaiku($, input, o.model, Math.max(200, Math.round(o.budgetMs)))
+  const tagged = firstOf<{ by: 'jev' | 'haiku'; verdict: Verdict }>([
+    jev.then(v => (v ? { by: 'jev' as const, verdict: v } : undefined)),
+    haiku.then(h => (h.verdict ? { by: 'haiku' as const, verdict: h.verdict } : undefined)),
+  ])
+  const won = await tagged
+  // The Haiku call is paid for whether or not it won; count it once it is back.
+  const h = won?.by === 'haiku' ? await haiku : await Promise.race([haiku, Promise.resolve(undefined)])
+  if (won) return { verdict: won.verdict, source: 'judge', by: won.by, ms: await ms(), usage: h?.usage }
+  const out = await haiku
+  return { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: await ms(), usage: out.usage, fail: out.fail || 'no answer' }
 }
 
 /** A few lines on the turns before `prompt`, so a follow-up is judged in context. */

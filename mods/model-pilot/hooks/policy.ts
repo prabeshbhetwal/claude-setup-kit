@@ -1,5 +1,5 @@
 // model-pilot policy: pure functions, no engine calls. Everything here is unit-tested.
-import { PRICES } from './prices'
+import { rateOf } from './prices'
 
 export type Tier = 'haiku' | 'sonnet' | 'opus' | 'fable'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh'
@@ -91,7 +91,7 @@ export function estTurnCost(
   i: Pick<DecideInput, 'contextTokens' | 'warm' | 'now' | 'cacheTtlMs'>,
   horizon: number,
 ): number {
-  const p = PRICES[tier]
+  const p = rateOf(tier, i.contextTokens)
   const w = i.warm[tier]
   const cached = w && i.now - w.at < i.cacheTtlMs ? Math.min(w.tokens, i.contextTokens) : 0
   const { steps, out } = SHAPE[required]
@@ -177,9 +177,11 @@ type CacheState = Pick<DecideInput, 'contextTokens' | 'warm' | 'now' | 'cacheTtl
  * while this chat pays two steps: the hand-off and reading the report.
  */
 export function placeCosts(required: Tier, runTier: Tier, i: CacheState): Record<Place, number> {
-  const p = PRICES[required]
   const { steps, out } = SHAPE[required]
-  const fresh = (startup: number): number => (startup * p.cacheWrite + (steps - 1) * startup * p.cacheRead + out * p.out) / 1e6
+  const fresh = (startup: number): number => {
+    const p = rateOf(required, startup)
+    return (startup * p.cacheWrite + (steps - 1) * startup * p.cacheRead + out * p.out) / 1e6
+  }
   const handOff = estTurnCost(runTier, 'haiku', i, 1)
   return {
     'in place': estTurnCost(runTier, required, i, 1),

@@ -1,0 +1,66 @@
+[
+ {
+  "id": "count-funcs",
+  "prompt": "How many functions are defined in calc.py? Reply with just the number.",
+  "answer": "^\\D*2\\D*$"
+ },
+ {
+  "id": "which-file",
+  "prompt": "Which file holds the test for div? Reply with the file name only.",
+  "answer": "test_calc\\.py"
+ },
+ {
+  "id": "py-version",
+  "prompt": "Run python3 --version here and reply with just the version number, like 3.12.1.",
+  "answer": "^\\s*`?3\\.\\d+\\.\\d+`?\\s*$"
+ },
+ {
+  "id": "add-mean",
+  "prompt": "In calc.py add mean(xs) returning the arithmetic mean of a list, raising ValueError on an empty list. Add a test in test_calc.py and run python3 -m pytest -q.",
+  "hidden": "import pytest\nfrom calc import mean\n\ndef test_mean():\n    assert mean([1, 2, 3]) == 2\n    assert mean([2.5]) == 2.5\n\ndef test_empty():\n    with pytest.raises(ValueError):\n        mean([])\n"
+ },
+ {
+  "id": "div-zero",
+  "prompt": "Make div in calc.py raise ZeroDivisionError with the message 'b must not be zero' when b is 0. Add a test and run python3 -m pytest -q.",
+  "hidden": "import pytest\nfrom calc import div\n\ndef test_zero():\n    with pytest.raises(ZeroDivisionError, match='b must not be zero'):\n        div(1, 0)\n\ndef test_ok():\n    assert div(6, 3) == 2\n"
+ },
+ {
+  "id": "rename",
+  "prompt": "Rename the function add to add_numbers everywhere in this project (definition, imports, tests). Run python3 -m pytest -q.",
+  "hidden": "import pathlib\nfrom calc import add_numbers\n\ndef test_renamed():\n    assert add_numbers(2, 3) == 5\n    assert 'def add(' not in pathlib.Path('calc.py').read_text()\n"
+ },
+ {
+  "id": "fix-median",
+  "files": {
+   "stats.py": "def median(xs):\n    s = sorted(xs)\n    return s[len(s) // 2]\n",
+   "test_stats.py": "from stats import median\n\n\ndef test_odd():\n    assert median([3, 1, 2]) == 2\n\n\ndef test_even():\n    assert median([4, 1, 3, 2]) == 2.5\n"
+  },
+  "prompt": "python3 -m pytest -q fails. Find the cause and fix it in the code, not the tests.",
+  "hidden": "import pytest\nfrom stats import median\n\ndef test_cases():\n    assert median([5]) == 5\n    assert median([1, 2]) == 1.5\n    assert median([4, 1, 3, 2]) == 2.5\n    assert median([3, 1, 2]) == 2\n"
+ },
+ {
+  "id": "parse-duration",
+  "prompt": "Create duration.py with parse_duration(s) that turns strings like '1h30m', '45s', '2h', '1h2m3s' into a number of seconds (int). Raise ValueError for an empty string, unknown units, or a unit given twice. Add tests and run python3 -m pytest -q.",
+  "hidden": "import pytest\nfrom duration import parse_duration as p\n\ndef test_ok():\n    assert p('1h30m') == 5400\n    assert p('45s') == 45\n    assert p('2h') == 7200\n    assert p('1h2m3s') == 3723\n\ndef test_bad():\n    for bad in ['', '5x', '1h1h', 'h']:\n        with pytest.raises(ValueError):\n            p(bad)\n"
+ },
+ {
+  "id": "topo-sort",
+  "prompt": "Create graph.py with topo_sort(deps) where deps maps each node to a list of nodes it depends on (nodes may appear only as dependencies). Return a list in which every node comes after its dependencies; raise ValueError on a cycle. Add tests and run python3 -m pytest -q.",
+  "hidden": "import pytest\nfrom graph import topo_sort\n\ndef ok(order, deps):\n    pos = {n: i for i, n in enumerate(order)}\n    return all(pos[d] < pos[n] for n, ds in deps.items() for d in ds)\n\ndef test_order():\n    deps = {'a': ['b', 'c'], 'b': ['c'], 'd': []}\n    out = topo_sort(deps)\n    assert set(out) == {'a', 'b', 'c', 'd'} and ok(out, deps)\n\ndef test_cycle():\n    with pytest.raises(ValueError):\n        topo_sort({'a': ['b'], 'b': ['a']})\n\ndef test_self():\n    with pytest.raises(ValueError):\n        topo_sort({'a': ['a']})\n"
+ },
+ {
+  "id": "lru",
+  "prompt": "Create lru.py with class LRUCache(capacity) offering get(key) (returns -1 when missing) and put(key, value), both O(1), evicting the least recently used entry when full. capacity 0 stores nothing. Add tests and run python3 -m pytest -q.",
+  "hidden": "from lru import LRUCache\n\ndef test_basic():\n    c = LRUCache(2)\n    c.put(1, 1); c.put(2, 2)\n    assert c.get(1) == 1\n    c.put(3, 3)\n    assert c.get(2) == -1\n    c.put(4, 4)\n    assert c.get(1) == -1 and c.get(3) == 3 and c.get(4) == 4\n\ndef test_update():\n    c = LRUCache(2)\n    c.put(1, 1); c.put(2, 2); c.put(1, 10); c.put(3, 3)\n    assert c.get(1) == 10 and c.get(2) == -1\n\ndef test_zero():\n    c = LRUCache(0)\n    c.put(1, 1)\n    assert c.get(1) == -1\n"
+ },
+ {
+  "id": "safe-eval",
+  "prompt": "Create expr.py with eval_expr(s) that evaluates arithmetic with + - * /, parentheses, unary minus and decimal numbers, with normal precedence, without eval, exec or the ast module. Raise ValueError on malformed input. Add tests and run python3 -m pytest -q.",
+  "hidden": "import pytest\nfrom expr import eval_expr as e\n\ndef test_values():\n    assert e('1+2*3') == 7\n    assert e('(1+2)*3') == 9\n    assert e('-3+5') == 2\n    assert e('2*-3') == -6\n    assert e('--2') == 2\n    assert abs(e('1.5*2') - 3) < 1e-9\n    assert e('8/2/2') == 2\n    assert e(' 2 - 3 - 4 ') == -5\n\ndef test_bad():\n    for bad in ['', '1+', '(1', '1)', '2**3', 'abc']:\n        with pytest.raises(ValueError):\n            e(bad)\n"
+ },
+ {
+  "id": "roman",
+  "prompt": "Create roman.py with to_roman(n) for 1..3999 (ValueError outside that range) and from_roman(s) (ValueError on invalid numerals such as 'IIII', 'VX' or 'IC'). Add tests and run python3 -m pytest -q.",
+  "hidden": "import pytest\nfrom roman import to_roman, from_roman\n\ndef test_round_trip():\n    for n in range(1, 4000):\n        assert from_roman(to_roman(n)) == n\n    assert to_roman(1994) == 'MCMXCIV'\n\ndef test_bad():\n    for bad in ['IIII', 'VX', 'IC', '', 'MMMM']:\n        with pytest.raises(ValueError):\n            from_roman(bad)\n\ndef test_range():\n    for n in [0, 4000, -1]:\n        with pytest.raises(ValueError):\n            to_roman(n)\n"
+ }
+]

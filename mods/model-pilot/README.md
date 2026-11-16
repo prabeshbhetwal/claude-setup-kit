@@ -32,7 +32,7 @@ Rule of thumb, as measured: a small job (a few lookups) is cheaper in place, and
 
 ## When the judge is slow or off
 
-The judge starts as the prompt is submitted and the first model request waits for it for at most the judge budget (default 2.5 s; a session's first prompt gets up to 1.5 s more). If Jev cannot answer, Haiku is asked. If no judge answers in time, built-in rules decide, and they are not trusted to go low: they may pick Haiku for a plain short lookup, and otherwise never go below the menu's model.
+The judge starts as the prompt is submitted and the first model request waits for it for at most the judge budget (default 2.5 s; a session's first prompt gets up to 1.5 s more). If Jev cannot answer, or has not answered within 1.2 s, Haiku is asked as well and the first answer wins (Haiku is only paid for when Jev is slow or down). If no judge answers in time, built-in rules decide, and they are not trusted to go low: they may pick Haiku for a plain short lookup, and otherwise never go below the menu's model.
 
 Privacy mode switches off both Jev and Haiku: rules only, with the same floor. With Jev on, the prompt text and the digest of recent turns go to TypeSafe; with Haiku they go to Anthropic, as the prompt itself does. The `jev` command holds the TypeSafe key; the mod never reads it.
 
@@ -69,10 +69,25 @@ Two labelled sets in `eval/`: `prompts.jsonl` (81 cases, used while writing the 
 
 Jev's two under-picks were hard tasks sent to Sonnet instead of Opus; Haiku's three were light edits or drafting sent to Haiku instead of Sonnet. Jev matched the labelled effort less often (81% against 98% for Haiku). The rules alone are weak at spotting hard work, which is why a rules verdict is floored at the menu's model in use. The sets are small: read the upper bounds, not just the rates.
 
+## Measured live (November 2026)
+
+Real Claude Code sessions driven by `eval/live/drive.py`, checked against the session transcript (which model and effort each API request used) and the engine's own cost figure. Scripts and how to rerun them: [eval/live/README.md](eval/live/README.md).
+
+| Test | Result |
+|---|---|
+| Side by side: 12 coding and lookup tasks, hidden tests, Fable in the menu | Pilot 12/12 passed for $0.53; Fable alone 12/12 for $2.79 (81% less) |
+| Switching under a full personal setup (many plugins and hooks): lookup, edit, follow-up, "use opus", design, sub-agents, `/model`, `/pilot auto` | 10/10 turns ran the picked model and effort; a sub-agent with no model ran the pick, one whose caller named a model kept it |
+| Judge failures: bad Jev key; Jev and Haiku both down | Haiku took over; then the rules, never below the menu's model for real work |
+| 36-turn session, context past 250K tokens | 36/36 turns correct, no errors |
+| Fresh-chat offer at `250k` | Offered at 279K, then once per further 50K; never acted on its own |
+| Logged cost against the engine's bill, 12 runs | Within 0.1% |
+| Judge wait per turn | 0.25 to 1.5 s with Jev |
+
 ## Limits
 
 - The judge adds a wait before the first token of a judged prompt: about half a second with Jev, about 2 seconds with Haiku, less whatever time your other prompt hooks take, since it runs beside them. Follow-ups, explicit choices and pinned sessions are not judged.
-- Savings are estimates: the turn's real token counts repriced on the menu's model, minus the Haiku judge call (Jev is billed by TypeSafe and is not counted). A different model would have had different cache hits and written different output. Prices are a table in `hooks/prices.ts`, list prices as of 3 November 2026.
+- Savings are estimates: each request of the turn repriced on the menu's model, with the first request's cache treated as that model's would have been (a cold cache is written afresh), minus the Haiku judge call (Jev is billed by TypeSafe and is not counted). A different model would have written different output. Prices are a table in `hooks/prices.ts`, list prices as of 16 November 2026: Claude Code's 1-hour cache writes cost 2x input, and Haiku 5.5 charges 5x on prompts over 100K tokens, which most Claude Code prompts are.
+- Savings come mostly from where a chat starts and from short chats. Cache reads cost about the same on Sonnet, Opus and Fable, so once a long chat is warm on one model, moving it down means re-writing the whole cache, which rarely pays; the pilot weighs this and usually stays put. Lookups on Haiku can take a few seconds longer than on a larger model, because Haiku makes more tool calls.
 - A model switch drops the earlier model's reasoning blocks from what the next model reads (the visible text and tool results stay). The cache weighing keeps switches rare in long conversations.
 - macOS only: the transcript read and the log append use `/bin/sh` and `tail`.
 

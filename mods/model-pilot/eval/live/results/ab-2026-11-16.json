@@ -1,0 +1,478 @@
+{
+ "date": "2026-11-16",
+ "engine": "2.1.325",
+ "menu": "claude-fable-5-2",
+ "note": "run1: both arms, judge chain before the hedge (one turn fell to rules); run2: pilot arm after the price fix and the hedge",
+ "run1": [
+  {
+   "task": "count-funcs",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.16711839999999997,
+   "ms": 9869,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "count-funcs",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0033670900000000005,
+   "ms": 14684,
+   "models": [
+    "claude-haiku-5-5"
+   ],
+   "picked": "haiku",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "which-file",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.16530820000000002,
+   "ms": 6894,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "which-file",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0034394000000000004,
+   "ms": 13542,
+   "models": [
+    "claude-haiku-5-5"
+   ],
+   "picked": "haiku",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "py-version",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.1637568,
+   "ms": 6867,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "py-version",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0024757100000000003,
+   "ms": 8837,
+   "models": [
+    "claude-haiku-5-5"
+   ],
+   "picked": "haiku",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "add-mean",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.206099,
+   "ms": 18256,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "add-mean",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.162779,
+   "ms": 16870,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "div-zero",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.2241704,
+   "ms": 14929,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "div-zero",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.060457300000000005,
+   "ms": 12466,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "rename",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.2280788,
+   "ms": 13702,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "rename",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0043585,
+   "ms": 15948,
+   "models": [
+    "claude-haiku-5-5"
+   ],
+   "picked": "haiku",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "fix-median",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.2128148,
+   "ms": 12062,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "fix-median",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.058437600000000006,
+   "ms": 12484,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "parse-duration",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.26893360000000005,
+   "ms": 21279,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "parse-duration",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.059432900000000004,
+   "ms": 12217,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "topo-sort",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.28131960000000006,
+   "ms": 28561,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "topo-sort",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.06418499999999999,
+   "ms": 13822,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "lru",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.2738048,
+   "ms": 27306,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "lru",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0630591,
+   "ms": 14244,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "safe-eval",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.3317484,
+   "ms": 43434,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "safe-eval",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0695747,
+   "ms": 21197,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "roman",
+   "arm": "off",
+   "pass": true,
+   "costUsd": 0.2692264,
+   "ms": 30403,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": null,
+   "effort": null,
+   "judge": null
+  },
+  {
+   "task": "roman",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.2616854,
+   "ms": 34964,
+   "models": [
+    "claude-fable-5-2"
+   ],
+   "picked": "fable",
+   "effort": "medium",
+   "judge": "rules"
+  }
+ ],
+ "run2_pilot": [
+  {
+   "task": "count-funcs",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0034954799999999996,
+   "ms": 18375,
+   "models": [
+    "claude-haiku-5-5"
+   ],
+   "picked": "haiku",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "which-file",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.00266742,
+   "ms": 12477,
+   "models": [
+    "claude-haiku-5-5"
+   ],
+   "picked": "haiku",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "py-version",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.00247428,
+   "ms": 8795,
+   "models": [
+    "claude-haiku-5-5"
+   ],
+   "picked": "haiku",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "add-mean",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.07363689999999999,
+   "ms": 23352,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "div-zero",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.053422399999999995,
+   "ms": 11838,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "low",
+   "judge": "jev"
+  },
+  {
+   "task": "rename",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.00465816,
+   "ms": 36377,
+   "models": [
+    "claude-haiku-5-5"
+   ],
+   "picked": "haiku",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "fix-median",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.059779500000000006,
+   "ms": 27527,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "parse-duration",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0593028,
+   "ms": 20566,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "topo-sort",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0658609,
+   "ms": 20133,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "lru",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0677431,
+   "ms": 18464,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "safe-eval",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.0686252,
+   "ms": 17243,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  },
+  {
+   "task": "roman",
+   "arm": "pilot",
+   "pass": true,
+   "costUsd": 0.07080499999999999,
+   "ms": 18360,
+   "models": [
+    "claude-sonnet-5-5"
+   ],
+   "picked": "sonnet",
+   "effort": "medium",
+   "judge": "jev"
+  }
+ ]
+}
