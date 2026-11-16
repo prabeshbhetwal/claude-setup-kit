@@ -204,7 +204,7 @@ export const register: Register = (on, options) => {
     const v = await read($, view)
     const { Box, Button, Text } = $.ui.resolve(e)
     const toggle = (
-      <Button key="power" plain label={f.isOn ? 'off' : 'on'} onPress={async () => {
+      <Button key="power" plain label={f.isOn ? 'turn off' : 'turn on'} onPress={async () => {
         await update($, flags, x => ({ ...x, isOn: !x.isOn }))
         await $.store.set('isOn', !f.isOn)
       }} />
