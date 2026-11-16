@@ -6,7 +6,7 @@
 #   ./install.sh --tiers core,memory,routing,judge,deliberation   (no questions)
 #   ./install.sh --only caveman,rtk   just these tools (dependencies are added)
 #   ./install.sh --list               print the catalogue and exit
-# Other options: --skip id,id  --caveman-mode lite|full|ultra  --model-selector-zip PATH
+# Other options: --skip id,id  --caveman-mode lite|full|ultra  --handoff auto|250k|500k|750k|never
 #   --install-missing   install missing prerequisites (Homebrew, Node.js, uv, Claude Code CLI) without asking
 #
 # Never overwrites: settings.json is merged (backup first); your own CLAUDE.md, guides and agents are
@@ -22,7 +22,7 @@ TIERS_ALL="core memory routing judge deliberation"
 SELECTED=" "
 TODO=""
 FAILED=""
-MODE=ask; TIERS=""; ONLY=""; SKIP=""; MS_ZIP=""; CAVEMODE=""; INSTALL_MISSING=""
+MODE=ask; TIERS=""; ONLY=""; SKIP=""; HANDOFF=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
 TTY=0; { : </dev/tty; } 2>/dev/null && TTY=1   # a keyboard to answer questions on
 
 say()  { printf '%s\n' "$*"; }
@@ -51,7 +51,7 @@ while [ $# -gt 0 ]; do
     --only) val "$1" "${2:-}"; ONLY=$(csv "$2"); shift ;;
     --skip) val "$1" "${2:-}"; SKIP=$(csv "$2"); shift ;;
     --caveman-mode) val "$1" "${2:-}"; CAVEMODE=$2; shift ;;
-    --model-selector-zip) val "$1" "${2:-}"; MS_ZIP=$2; shift ;;
+    --handoff) val "$1" "${2:-}"; HANDOFF=$2; shift ;;
     --install-missing) INSTALL_MISSING=1 ;;
     --list) awk -F'|' '!/^#/ {printf "%-15s %-13s %s\n    %s\n", $1, $2, $3, $5}' "$CAT"; exit 0 ;;
     -h|--help) usage ;;
@@ -132,26 +132,17 @@ else
     elif [ "$d" = y ]; then for id in $(tier_ids "$t"); do add "$id"; done; fi
   done
 fi
-# The Model Selector pack is not redistributable: only from a zip the person supplies,
-# or from private/ in their own copy of the kit (pack-private.sh; gitignored).
-[ -z "$MS_ZIP" ] && [ -f "$KIT/private/claude-model-selector.zip" ] && MS_ZIP="$KIT/private/claude-model-selector.zip"
-if has model-selector && [ -z "$MS_ZIP" ]; then
-  if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
-    printf '  Path to your Model Selector zip (Enter to skip): '; read -r MS_ZIP </dev/tty
-  fi
-  [ -z "$MS_ZIP" ] && { drop model-selector; info "Model Selector pack skipped (no zip given)"; }
-fi
 # Skips first: a skipped tool also removes whatever needs it, so dependencies never pull it back in.
 for id in $SKIP; do
   [ -n "$(field "$id" 1)" ] || { say "Unknown tool in --skip: $id (see --list)"; exit 2; }
   drop "$id"
-  for pair in indexes:codegraph indexes:graphify mjudge:jev model-selector:routing; do
+  for pair in indexes:codegraph indexes:graphify mjudge:jev; do
     a=${pair%%:*}; b=${pair#*:}
     [ "$b" = "$id" ] && has "$a" && { drop "$a"; SKIP="$SKIP $a"; info "$(field "$a" 3) skipped too (needs $(field "$b" 3))"; }
   done
 done
 # Dependencies: asked, not silently added. Saying no leaves out the tool that needs it.
-for pair in indexes:codegraph indexes:graphify mjudge:jev model-selector:routing; do
+for pair in indexes:codegraph indexes:graphify mjudge:jev; do
   a=${pair%%:*}; b=${pair#*:}
   has "$a" && ! has "$b" || continue
   say ""
@@ -193,6 +184,42 @@ if has measure; then
   say "and shows a notification. It reads local files only and uses no Claude tokens."
   ask "Schedule the monthly report?" y || { DO_SCHED=0; info "monthly report not scheduled (run it by hand: python3 ~/.claude/hooks/token-monthly.py)"; }
 fi
+if has model-pilot && [ "$(uname -s)" != Darwin ]; then drop model-pilot; info "Model pilot left out: it is macOS only"; fi
+if has model-pilot; then
+  # Two selectors would each pick a model for the same prompt. Only one can be on.
+  OTHER=$(python3 -c 'import json,sys
+try: print(" ".join(k for k, v in json.load(open(sys.argv[1])).get("enabledPlugins", {}).items() if v is True and k.endswith("@claude-model-selector")))
+except Exception: pass' "$CL/settings.json" 2>/dev/null)
+  if [ -n "$OTHER" ]; then
+    say ""
+    say "Model pilot: another model selector is switched on ($OTHER)."
+    say "Two selectors would each pick a model for the same prompt, so only one can be on. Switching the other"
+    say "one off does not remove it: 'claude plugin enable <name>' brings it back."
+    if ask "Switch the other one off and use Model pilot? (No = leave Model pilot out)" y; then PILOT_OFF=$OTHER
+    else drop model-pilot; info "Model pilot left out"; fi
+  fi
+fi
+if has model-pilot && [ -z "$HANDOFF" ]; then
+  HANDOFF=auto
+  if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
+    say ""
+    say "Model pilot: when should it offer you a fresh chat? A chat that grows long costs more at every step,"
+    say "because Claude re-reads all of it each time, and it keeps track of early details less well. A new chat"
+    say "that starts from a written summary is cheaper and sharper, but whatever the summary leaves out is gone."
+    say "Model pilot can offer to write that summary when the chat reaches the size you choose here."
+    say "It only ever offers. It never starts a new chat for you."
+    say "  1) auto   at 500k tokens when the model's window is 1 million, at 250k on a smaller window (recommended:"
+    say "            deep enough that a summary pays, early enough that the chat is not yet slow and costly)"
+    say "  2) 250k   earliest: lowest cost per step, most restarts"
+    say "  3) 500k"
+    say "  4) 750k   latest: fewest restarts, highest cost per step"
+    say "  5) never"
+    printf '  Choose 1-5 [1] '; read -r a </dev/tty
+    case "$a" in 2) HANDOFF=250k ;; 3) HANDOFF=500k ;; 4) HANDOFF=750k ;; 5) HANDOFF=never ;; *) HANDOFF=auto ;; esac
+    say "  Change it any time in Claude Code: /config, under Model pilot."
+  fi
+fi
+case "$HANDOFF" in ''|auto|250k|500k|750k|never) ;; *) info "Fresh-chat choice '$HANDOFF' not known: using auto"; HANDOFF=auto ;; esac
 [ "$SELECTED" = " " ] && { say "Nothing selected. Nothing changed."; exit 0; }
 say ""; say "Ready to install:"
 for id in $SELECTED; do say "  - $(field "$id" 3)"; done
@@ -212,7 +239,7 @@ CMD_BREW=${KIT_CMD_BREW:-'/bin/bash -c "$(curl -fsSL https://raw.githubuserconte
 CMD_CLAUDE=${KIT_CMD_CLAUDE:-"curl -fsSL https://claude.ai/install.sh | bash"}
 CMD_NODE=${KIT_CMD_NODE:-"brew install node"}
 CMD_UV=${KIT_CMD_UV:-"brew install uv"}
-uses_claude() { for id in caveman adhd ponytail context-mode codegraph supermemory cognee agentmemory remember model-selector deliberation; do has $id && return 0; done; return 1; }
+uses_claude() { for id in caveman adhd ponytail context-mode codegraph supermemory cognee agentmemory remember model-pilot deliberation; do has $id && return 0; done; return 1; }
 uses_node() { has context-mode || has codegraph || has agentmemory; }
 check_prereqs() { # fills LACK with "key|name|why" lines, in install order
   LACK=""
@@ -431,19 +458,28 @@ if has routing; then
   copy_file "$KIT/files/hooks/routing-card.sh" "$CL/hooks/routing-card.sh" exec replace
   for f in "$KIT"/files/agents/*.md; do copy_file "$f" "$CL/agents/$(basename "$f")" data keep; done
 fi
-if has model-selector; then
-  dest="$CL/local-marketplaces"; mkdir -p "$dest"
-  tmp=$(mktemp -d); unzip -q -o "$MS_ZIP" -d "$tmp" 2>/dev/null || fail "unzip $MS_ZIP"
-  mj=$(find "$tmp" -path '*/.claude-plugin/marketplace.json' -maxdepth 4 | head -1)
-  if [ -n "$mj" ]; then
-    src=$(dirname "$(dirname "$mj")"); name=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['name'])" "$mj")
-    # Newer pack replaces an older copy (old one kept as .bak-kit-<time>); an identical copy is left alone.
-    if [ -d "$dest/$name" ] && ! diff -rq "$src" "$dest/$name" >/dev/null 2>&1; then mv "$dest/$name" "$dest/$name.bak-kit-$TS"; fi
-    [ -d "$dest/$name" ] || cp -R "$src" "$dest/$name"
-    for p in $(python3 -c "import json,sys;print(' '.join(p['name'] for p in json.load(open(sys.argv[1]))['plugins']))" "$mj"); do
-      plugin "$dest/$name" "$name" "$p"
-    done
-  else fail "no .claude-plugin/marketplace.json in $MS_ZIP"; fi
+if has model-pilot; then
+  for p in $PILOT_OFF; do
+    claude plugin disable "$p" >/dev/null 2>&1 && ok "switched off $p (to go back: claude plugin enable $p, and switch Model pilot off)" || fail "could not switch off $p (run: claude plugin disable $p)"
+  done
+  # Copied, so this kit folder can be moved or removed later. Files are added or replaced, never removed.
+  dest="$CL/local-marketplaces/claude-setup-kit"; mkdir -p "$dest"
+  cp -R "$KIT/mods/." "$dest/" && ok "model pilot files in $dest" || fail "copy $KIT/mods to $dest"
+  plugin "$dest" claude-setup-kit model-pilot
+  if [ "$HANDOFF" != auto ]; then
+    python3 - "$CL/settings.json" "$HANDOFF" "$TS" <<'PY' && ok "fresh-chat offer set to $HANDOFF" || fail "could not save the fresh-chat choice (set it in /config, under Model pilot)"
+import json, os, shutil, sys
+path, value, ts = sys.argv[1:4]
+d = json.load(open(path)) if os.path.exists(path) else {}
+opts = d.setdefault("pluginConfigs", {}).setdefault("model-pilot@claude-setup-kit", {}).setdefault("options", {})
+if opts.get("handoff") != value:
+    if os.path.exists(path):
+        shutil.copy2(path, f"{path}.bak-kit-{ts}")
+    opts["handoff"] = value
+    json.dump(d, open(path, "w"), indent=2)
+PY
+  fi
+  todo "Model pilot: after the restart, type /pilot status in Claude Code. The row above the prompt shows each pick and what really ran; /pilot cost compares a helper agent, doing it in place and a fresh chat."
 fi
 
 # ---------------------------------------------------------------- judge

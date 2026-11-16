@@ -12,7 +12,7 @@ Saved has two parts, reported apart:
   estimated - per session type, (median first-request context in the frozen before-week) minus (median since
               install), times that type's requests in the month; the same method as token-daily.py.
 Without the kit ~= used + measured + estimated. Totals follow how much you worked; the saving lines are the kit's part.
-Per tool: one line each for Caveman, context-mode, CodeGraph and Graphify, from token-tools.py; never added to the totals.
+Per tool: one line each for Caveman, context-mode, CodeGraph, Graphify and model-pilot, from token-tools.py; never added to the totals.
 """
 import glob
 import importlib.machinery

@@ -94,7 +94,6 @@ if (Has 'routing') {
   if ($GitBash -and ((& $GitBash "$CL/hooks/routing-card.sh" 2>$null | Out-String) -match 'MODEL ROUTING ACTIVE')) { Pass 'routing card prints' } else { Fail 'routing-card.sh does not print the card' }
   Hook-On 'SessionStart' 'routing-card.sh' 'routing card'
 }
-if (Has 'model-selector') { foreach ($p in @('model-selector', 'model-router', 'handoff', 'cache-clock')) { Plugin-On "$p@claude-model-selector" } }
 if (Has 'jev') {
   foreach ($c in @('jev', 'jev-gate')) { if (Test-Path "$BIN\$c.cmd") { Pass $c } else { Fail "$c missing" } }
   Hook-On 'PostToolUse' 'jev-hooks.py' 'Jev tool-output triage (shadow)'

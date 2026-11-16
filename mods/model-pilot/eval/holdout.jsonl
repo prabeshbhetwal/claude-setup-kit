@@ -1,0 +1,44 @@
+// model-pilot held-out set: written after the rubric was last changed, never used to tune it. Same format and labelling rule as prompts.jsonl.
+{"id":"H01","prompt":"what port does postgres listen on by default","tier":"haiku","effort":"low"}
+{"id":"H02","prompt":"Give me three subject lines for an email announcing our office is closed on Friday.","tier":"haiku","effort":"low"}
+{"id":"H03","prompt":"cat the .env.example and tell me which variables are required","tier":"haiku","effort":"low"}
+{"id":"H04","prompt":"What's the difference between a mutex and a semaphore? Short answer.","tier":"haiku","effort":"low"}
+{"id":"H05","prompt":"How many days between 3 March and 19 July?","tier":"haiku","effort":"low"}
+{"id":"H06","prompt":"Shorten this to one sentence: 'We regret to inform you that due to unforeseen circumstances relating to supplier delays, your order will not arrive within the originally communicated delivery window, and we are working to provide an updated estimate as soon as possible.'","tier":"haiku","effort":"low"}
+{"id":"H07","prompt":"which branch am I on and is it ahead of origin?","tier":"haiku","effort":"low"}
+{"id":"H08","prompt":"what does 'idempotent' mean in REST?","tier":"haiku","effort":"low"}
+{"id":"H09","prompt":"Sort these names alphabetically by surname: Mei Tanaka, Luis Ortega, Priya Nair, Tom Becker","tier":"haiku","effort":"low"}
+{"id":"H10","prompt":"good morning! what can you do?","tier":"haiku","effort":"low"}
+{"id":"H11","prompt":"Extract the dates and amounts from this text as a list: 'Paid $1,200 on 4 Feb, $860 on 19 Feb and the last $2,050 on 2 March.'","tier":"haiku","effort":"low"}
+{"id":"H12","prompt":"open CHANGELOG.md and tell me what changed in the latest version","tier":"haiku","effort":"low"}
+{"id":"H13","prompt":"change the button label from 'Sumbit' to 'Submit' in LoginForm.tsx","tier":"haiku","effort":"low"}
+{"id":"S01","prompt":"Write a function in Go that deduplicates a slice of strings while preserving order, with a table-driven test.","tier":"sonnet","effort":"medium"}
+{"id":"S02","prompt":"Add pagination (limit and cursor) to the GET /articles endpoint in routes/articles.py and update the OpenAPI spec.","tier":"sonnet","effort":"medium"}
+{"id":"S03","prompt":"The date picker shows the wrong day for users in UTC-8 because we call toISOString() before formatting. Fix it in DatePicker.tsx.","tier":"sonnet","effort":"medium"}
+{"id":"S04","prompt":"Write a cover letter paragraph tying my five years of support experience to this junior product manager role. Here are my notes: led a 6-person queue, cut response time 40%, wrote the internal FAQ, ran weekly bug triage with engineering.","tier":"sonnet","effort":"medium"}
+{"id":"S05","prompt":"Create a Makefile with targets for install, lint, test and build for this Python package.","tier":"sonnet","effort":"medium"}
+{"id":"S06","prompt":"Walk me through what happens in src/queue/consumer.ts when a message fails three times.","tier":"sonnet","effort":"medium"}
+{"id":"S07","prompt":"Replace moment.js with date-fns in the three files under src/reports and make sure the output formats stay the same.","tier":"sonnet","effort":"medium"}
+{"id":"S08","prompt":"Write a pandas snippet that loads sales.csv, fills missing region values with 'Unknown' and pivots revenue by region and quarter.","tier":"sonnet","effort":"medium"}
+{"id":"S09","prompt":"Add an index for the query in getOrdersByCustomer and write the migration.","tier":"sonnet","effort":"medium"}
+{"id":"S10","prompt":"Turn these meeting notes into a clear action list with owners and dates, and flag anything ambiguous: 'Sam to look at vendor quotes maybe next week; legal review still pending, nobody sure who; launch date either 12th or 19th depending on QA; Dana said she would chase finance.'","tier":"sonnet","effort":"medium"}
+{"id":"S11","prompt":"Write an nginx config that serves the SPA from /var/www/app, proxies /api to localhost:4000 and sets sensible cache headers for static assets.","tier":"sonnet","effort":"medium"}
+{"id":"S12","prompt":"Our ESLint run reports 23 'no-unused-vars' errors after the upgrade. Clean them up without changing behaviour.","tier":"sonnet","effort":"medium"}
+{"id":"S13","prompt":"Write a short script that pings our five health endpoints and posts a Slack message if any fail.","tier":"sonnet","effort":"medium"}
+{"id":"O01","prompt":"Orders occasionally get stuck in 'processing' forever. There is no error in the logs. The state machine has 9 states and three services can write the status. Work out how an order can get stuck.","tier":"opus","effort":"high"}
+{"id":"O02","prompt":"We're choosing between row-level security in Postgres and enforcing tenancy in the application layer. 200 tenants today, some want their own region later. Recommend one and tell me what we'd regret.","tier":"opus","effort":"high"}
+{"id":"O03","prompt":"After upgrading the ORM, one report query went from 200ms to 40 seconds but only for customers with more than about 10k rows. Help me figure out why and fix it.","tier":"opus","effort":"high"}
+{"id":"O04","prompt":"Check this webhook handler for security problems: it verifies the signature with ==, parses the body before verifying, and uses the event id from the payload as the dedupe key.","tier":"opus","effort":"high"}
+{"id":"O05","prompt":"Design an offline-first sync protocol for our notes app: edits on several devices, conflicts, deletions and attachments, with the server as the eventual source of truth.","tier":"opus","effort":"high"}
+{"id":"O06","prompt":"The mobile app's cold start went from 1.2s to 3.5s over the last four releases and nobody knows which change did it. How do I find the cause and what should I look at first?","tier":"opus","effort":"high"}
+{"id":"O07","prompt":"We need to split the monolith's user module into its own service without breaking the 40 places that join against the users table. Propose the sequence of steps and the risks at each.","tier":"opus","effort":"high"}
+{"id":"O08","prompt":"Our nightly export sometimes has fewer rows than the source table. It paginates with OFFSET while writes continue. Explain precisely why rows go missing and give a correct approach.","tier":"opus","effort":"high"}
+{"id":"O09","prompt":"I have to decide this week whether to rewrite our React Native app in Swift and Kotlin. Team of five, two years of code, performance complaints on Android only. Lay out the decision properly.","tier":"opus","effort":"high"}
+{"id":"F01","prompt":"Take this prototype repo and turn it into a production system on your own: design the architecture, rewrite what needs rewriting across all modules, add auth, observability, CI, tests and docs. It will take many hours; plan it, do it, and verify each part before moving on.","tier":"fable","effort":"high"}
+{"id":"C01","prompt":"go ahead","recent":"user: Our nightly export sometimes has fewer rows than the source. Why?\nassistant: OFFSET pagination skips rows when earlier rows are deleted mid-run. I propose switching to keyset pagination on (updated_at, id) with a snapshot boundary, and backfilling last week's exports. Shall I make the change? [tools: Read, Grep]","tier":"opus","effort":"high"}
+{"id":"C02","prompt":"and in pounds?","recent":"user: what's 12 kilograms in ounces?\nassistant: 12 kg is about 423.3 ounces.","tier":"haiku","effort":"low"}
+{"id":"C03","prompt":"nope, still slow for the big customers","recent":"user: After upgrading the ORM, one report query went from 200ms to 40 seconds for large customers. Fix it.\nassistant: I added an index on (customer_id, created_at) and rewrote the subquery as a join. [tools: Read, Edit, Bash]","tier":"opus","effort":"high"}
+{"id":"C04","prompt":"make the heading bold too","recent":"user: Add a footer with the copyright year to the email template.\nassistant: Added the footer to templates/email.html. [tools: Edit]","tier":"sonnet","effort":"low"}
+{"id":"A01","kind":"agent","prompt":"List every TODO and FIXME comment under src/ with file and line, grouped by directory. Report only.","tier":"haiku","effort":"low"}
+{"id":"A02","kind":"agent","prompt":"Write integration tests for the three endpoints in routes/billing.ts using the existing test helpers, run them, and fix any test that fails because of a mistake in the test.","tier":"sonnet","effort":"medium"}
+{"id":"A03","kind":"agent","prompt":"Review the diff on this branch for concurrency bugs and data races in the new worker pool. Be thorough and report each finding with the reasoning.","tier":"opus","effort":"high"}

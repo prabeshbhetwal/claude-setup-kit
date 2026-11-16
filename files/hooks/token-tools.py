@@ -8,6 +8,9 @@
   context-mode - bytes it kept out of context, from its own records: sandbox_bytes - returned_bytes per event in
                  ~/.context-mode/projects/*/context.db, plus kept_out in older stats-pid-*.json files dated before
                  the first database event. The token figure beside it is an estimate (4 bytes per token).
+  model-pilot  - decisions in its own log (~/.claude/mods-logs/model-pilot.jsonl) and the saving it estimated against
+                 the menu model: the turn's real tokens repriced, minus the judge calls. An estimate: another model
+                 would have had different cache hits and output. Shadow-mode lines count as decisions, never as savings.
   CodeGraph, Graphify - calls found in the transcripts and the size of what they returned. No saving is estimated:
                  nothing records what the searches and file reads they replaced would have cost.
 None of these is added to the report's totals: RTK and context-mode both trim shell output.
@@ -116,6 +119,29 @@ def tool_calls(start, end, root=None):
     return n
 
 
+def model_pilot(start, end, path=None):
+    """(decisions, of which ran below the menu model, estimated saving in US dollars) from model-pilot's log; None without one."""
+    path = path or os.path.expanduser("~/.claude/mods-logs/model-pilot.jsonl")
+    if not os.path.exists(path):
+        return None
+    n = lower = 0
+    saved = 0.0
+    for line in open(path, errors="replace"):
+        try:
+            d = json.loads(line)
+            at = datetime.fromisoformat(d["ts"].replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if not start <= at < end:
+            continue
+        n += 1
+        if not d.get("shadow"):
+            saving = d.get("est_saving_usd") or 0
+            saved += saving
+            lower += saving > 0
+    return n, lower, saved
+
+
 def fb(x):
     return f"{x / 1e6:.1f} MB" if x >= 1e6 else f"{x / 1e3:.1f} KB"
 
@@ -130,11 +156,14 @@ def lines(tools):
     for key, label in (("codegraph", "CodeGraph"), ("graphify", "Graphify")):
         calls, size = tools[key]
         L.append(f"| {label} | {calls} {'calls' if key == 'codegraph' else 'reads of graphify-out'}, {fb(size)} returned | none: nothing records what the searches and file reads it replaced would have cost |")
+    pilot = tools.get("model-pilot")
+    L.append(f"| model-pilot | {pilot[0]} model decisions, {pilot[1]} ran below the menu model (its own log) | ~${pilot[2]:.2f} against the menu model: an estimate, the same tokens repriced minus the judge calls |"
+             if pilot else "| model-pilot | no model-pilot log found | none |")
     return L
 
 
 def collect(start, end):
-    return {"caveman": caveman(start, end), "context-mode": context_mode(start, end), **tool_calls(start, end)}
+    return {"caveman": caveman(start, end), "context-mode": context_mode(start, end), "model-pilot": model_pilot(start, end), **tool_calls(start, end)}
 
 
 def selftest():
@@ -170,8 +199,16 @@ def selftest():
             os.utime(os.path.join(d, "projects", "x", name), (ms(6) / 1000,) * 2)  # files untouched since before the month are skipped
         calls = tool_calls(start, end, os.path.join(d, "projects"))
         assert calls == {"codegraph": [1, 300], "graphify": [1, 40]}, calls
-    tools = {"caveman": (700, 1), "context-mode": 6000, **calls}
+        plog = os.path.join(d, "pilot.jsonl")  # one applied saving, one shadow line (no saving), one upgrade, one other month
+        prow = lambda ts, saving, shadow=False: json.dumps({"ts": ts, "kind": "turn", "shadow": shadow, "est_saving_usd": saving})
+        open(plog, "w").write("\n".join([prow("2026-12-05T02:00:00.000Z", 0.5), prow("2026-12-06T02:00:00.000Z", 9, True), prow("2026-12-07T02:00:00.000Z", -0.1),
+                                          prow("2026-10-01T02:00:00.000Z", 7), "not json", json.dumps({"kind": "turn"})]) + "\n")
+        pilot = model_pilot(start, end, plog)
+        assert pilot[:2] == (3, 1) and abs(pilot[2] - 0.4) < 1e-9 and model_pilot(start, end, plog + ".missing") is None, pilot
+    tools = {"caveman": (700, 1), "context-mode": 6000, "model-pilot": pilot, **calls}
     text = "\n".join(lines(tools))
+    assert "| model-pilot | 3 model decisions, 1 ran below the menu model" in text and "~$0.40" in text, text
+    assert "no model-pilot log found" in "\n".join(lines({**tools, "model-pilot": None}))
     assert "~1.5k tokens" in text and "| Graphify | 1 reads of graphify-out, 0.0 KB returned" in text, text
     return tools
 

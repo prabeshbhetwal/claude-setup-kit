@@ -1,0 +1,85 @@
+{
+  "name": "model-pilot",
+  "version": "0.1.0",
+  "description": "Picks the cheapest Claude model and effort that will do each prompt reliably, shows what actually ran, and logs an estimated saving. Claude Code on macOS.",
+  "license": "MIT",
+  "author": {
+    "name": "claude-setup-kit contributors"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Model pilot on",
+      "description": "Pick a model and effort for each prompt. Off: every prompt runs on the menu's model, and nothing is judged or logged.",
+      "default": true
+    },
+    "privacy": {
+      "type": "boolean",
+      "title": "Privacy mode (no AI judge)",
+      "description": "Never send prompt text to the judge model. Picks come from built-in rules only. Use for confidential work.",
+      "default": false
+    },
+    "privateFolders": {
+      "type": "string",
+      "title": "Private folders",
+      "description": "Comma-separated folders (~ allowed) where privacy mode is always on, whatever the switch above says.",
+      "default": ""
+    },
+    "allowUpgrade": {
+      "type": "boolean",
+      "title": "Allow picks above the menu model",
+      "description": "On: a hard task may run on a stronger model than the menu shows. Off: the menu's model is the ceiling.",
+      "default": true
+    },
+    "subagents": {
+      "type": "boolean",
+      "title": "Route sub-agents",
+      "description": "Pick a model for sub-agents that name none. Agents whose call or definition names a model are never touched.",
+      "default": true
+    },
+    "handoff": {
+      "type": "string",
+      "title": "Offer a fresh chat at",
+      "description": "A long chat costs more at every step, because the whole chat is re-read, and the model keeps track of early details less well. A fresh chat that starts from a written summary is cheaper and sharper, but loses whatever the summary leaves out. This sets the context size at which the pilot offers to write that summary. It only ever offers. auto: 500k tokens on a 1M-token window, 250k on a smaller one.",
+      "options": [
+        "auto",
+        "250k",
+        "500k",
+        "750k",
+        "never"
+      ],
+      "default": "auto"
+    },
+    "jev": {
+      "type": "boolean",
+      "title": "Use Jev as the first judge when available",
+      "description": "If the jev command and a TypeSafe key are on this Mac, Jev judges each prompt (about half a second) and Haiku is the backup. Without them Haiku judges and nothing is missing. With Jev, the prompt text and a short digest of recent turns go to TypeSafe. Off: Haiku only.",
+      "default": true
+    },
+    "judgeBudgetMs": {
+      "type": "number",
+      "title": "Judge time budget (ms)",
+      "description": "The longest the first model request of a turn waits for the judge, which starts when the prompt is submitted. Past it, built-in rules decide and the turn never runs below the menu's model. A session's first prompt gets up to 1.5 s more.",
+      "default": 2500
+    },
+    "judgeModel": {
+      "type": "string",
+      "title": "Judge model",
+      "description": "The small model that judges each prompt: an alias or a model id.",
+      "default": "haiku"
+    },
+    "shadow": {
+      "type": "boolean",
+      "title": "Shadow mode (observe only)",
+      "description": "Judge and log every prompt but change nothing: every request runs on the menu's model. The log shows what the pilot would have picked and saved.",
+      "default": false
+    },
+    "band": {
+      "type": "boolean",
+      "title": "Row above the prompt",
+      "description": "Show what was picked and what actually ran above the prompt.",
+      "default": true
+    }
+  }
+}

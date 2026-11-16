@@ -99,6 +99,7 @@ Pick the tiers you want; `--list` prints every tool.
 | `--skip graphify` | `-Skip graphify` | Leave tools out (and anything that needs them) |
 | `--install-missing` | `-InstallMissing` | Install missing prerequisites without asking |
 | `--caveman-mode lite` | `-CavemanMode lite` | Caveman strength: lite, full, ultra |
+| `--handoff 500k` | macOS only | Model pilot: when to offer a fresh chat (`auto`, `250k`, `500k`, `750k`, `never`) |
 | `--list` | `-List` | Print the catalogue and exit |
 
 ## What you can install
@@ -121,11 +122,22 @@ Pick the tiers you want; `--list` prints every tool.
 | memory | agentmemory | Searchable memory of past agent work | You start its server |
 | memory | remember | Session diary with a summary at start | — |
 | routing | Routing card + lean agents | Cheapest model that can do each task; small helper agents | — |
+| routing | Model pilot (macOS only) | Before each prompt, picks the cheapest model and effort that will do the job; shows what really ran | Recent Claude Code; Jev optional |
 | judge | Jev | Fast yes/no triage over long lists | TypeSafe key (paid) |
 | judge | mjudge | Yes/no/score over images, video, audio, PDFs | Gemini key (free tier) |
 | deliberation | Deliberation | Second opinions from GPT, Gemini, Grok, OpenRouter | One provider account |
 
 Every key, where it goes, and what still works without it: [.env.example](.env.example).
+
+## Model pilot
+
+A mod for Claude Code on macOS, written for this kit (MIT, in [`mods/model-pilot`](mods/model-pilot/README.md)). Before each prompt a small, fast judge decides which model tier (Haiku, Sonnet, Opus, Fable) and effort the task needs, and Claude Code runs the turn on that. A row above the prompt shows the pick and the model that actually ran, read from the session transcript. Your own choice always wins: name a model in the prompt, or pick one in the menu, and the pilot leaves it alone.
+
+- **Judges, in order:** Jev if you have it (about half a second), then Haiku (about two seconds), then built-in rules. Without Jev you lose nothing but speed. Privacy mode uses the rules only.
+- **Measured on 124 labelled prompts:** it picked a model that was too weak in 1.6% of cases with Jev and 2.4% with Haiku. Full tables are in the mod's README.
+- **Where a job is cheapest to run.** Doing it in the chat you are in has no start-up cost, but every step re-reads the whole chat. A helper agent loads its own context once: about 14k tokens for the kit's lean agents (`haiku-lean`, `sonnet-lean`), about 72k for an all-tools agent. A new session loads about 120k. So a few lookups are cheaper in place, and a big, tool-heavy job is cheaper in a lean helper. The pilot says so when it matters, and `/pilot cost` shows the figures for the chat you are in. These sizes were measured on the author's setup; yours will differ.
+- **Fresh chat offer.** At a chat size you choose (the installer asks: auto, 250k, 500k, 750k or never) it offers to write a summary so you can continue in a new chat. It only offers.
+- **Only one model selector at a time.** If another one is on, the installer asks before switching it off.
 
 ## What it changes on your computer
 
@@ -157,7 +169,7 @@ All from the author's own Mac on 2026-11-15. One machine, small samples.
 
 Measure your own: `python3 ~/.claude/hooks/token-scorecard.py 30`, and `python3 ~/.claude/hooks/token-compare.py` a week after installing.
 
-**Monthly report.** `token-monthly.py` runs at 09:00 on the 1st (launchd on macOS, Task Scheduler on Windows; no Claude tokens) and writes `~/.claude/cache/token-compare/monthly/YYYY-MM.md`; on macOS it also shows a notification. It reports tokens used, tokens saved and what you would have used without the kit. Saved has two parts, kept apart: **measured** (RTK's own count of shell output it cut; a floor) and **estimated** (how much smaller sessions start since install, per session type, times the month's requests). Four more tools get one line each, from `token-tools.py`, with measured and estimated kept in separate columns and none of it added to the totals (RTK and context-mode both trim shell output, so adding them would count some of it twice). **Caveman**: output tokens its own log attributes to a Caveman mode; no saving is claimed, because the log has no without-Caveman comparison. **context-mode**: bytes it kept out of context, from its own records (measured), with a token estimate beside it at 4 bytes per token. **CodeGraph** and **Graphify**: calls found in your transcripts and the size of what they returned; no saving is estimated, because nothing records what the searches and file reads they replaced would have cost. Run it by hand: `python3 ~/.claude/hooks/token-monthly.py 2026-12`.
+**Monthly report.** `token-monthly.py` runs at 09:00 on the 1st (launchd on macOS, Task Scheduler on Windows; no Claude tokens) and writes `~/.claude/cache/token-compare/monthly/YYYY-MM.md`; on macOS it also shows a notification. It reports tokens used, tokens saved and what you would have used without the kit. Saved has two parts, kept apart: **measured** (RTK's own count of shell output it cut; a floor) and **estimated** (how much smaller sessions start since install, per session type, times the month's requests). Five more tools get one line each, from `token-tools.py`, with measured and estimated kept in separate columns and none of it added to the totals (RTK and context-mode both trim shell output, so adding them would count some of it twice). **Caveman**: output tokens its own log attributes to a Caveman mode; no saving is claimed, because the log has no without-Caveman comparison. **context-mode**: bytes it kept out of context, from its own records (measured), with a token estimate beside it at 4 bytes per token. **CodeGraph** and **Graphify**: calls found in your transcripts and the size of what they returned; no saving is estimated, because nothing records what the searches and file reads they replaced would have cost. **model-pilot**: the number of model decisions in its own log and its estimated saving against the menu model, an estimate (the turn's real tokens repriced, minus the judge calls). Run it by hand: `python3 ~/.claude/hooks/token-monthly.py 2026-12`.
 
 ## What it costs to run
 
@@ -165,7 +177,7 @@ Measure your own: `python3 ~/.claude/hooks/token-scorecard.py 30`, and `python3 
 |---|---|
 | core | Free. Needs a Claude Code plan as usual |
 | memory | Supermemory: account required (pricing not checked by this kit). Cognee: every saved turn is sent to the LLM in `~/.cognee/.env` and billed per use on that account. Set a monthly spend limit in the provider console. agentmemory, remember: free |
-| routing | Free |
+| routing | Routing card and agents: free. Model pilot: one small judge call per judged prompt, on your Claude plan with Haiku (a fraction of a cent) or on your TypeSafe account with Jev |
 | judge | TypeSafe: paid account (pricing not checked). Gemini: free tier available; free-tier inputs may be used for training |
 | deliberation | Each second opinion uses that provider's tokens or plan (ChatGPT/Codex, Gemini, xAI, OpenRouter) |
 
@@ -176,7 +188,7 @@ Every hook also adds a little latency. The Jev shadow hooks are async and fail o
 - **Tested on macOS only.** The Windows installer (`install.ps1`) has not been run on Windows yet. Linux is not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
 - **The model router saved nothing on a small job** (see Measured numbers). Routing pays off only when large, tool-heavy work goes to lean helpers.
 - **Trim savings are unmeasured until 23 Nov 2026.**
-- **Model Selector pack is not in the public repo.** It is Ben AI's and carries no licence, so it cannot be redistributed. For your own machines, `./pack-private.sh` packs the copy you run (with your changes) into `private/` (gitignored, skipped by `scan.sh`) and builds `../claude-setup-kit-private.zip`; the installers use `private/claude-model-selector.zip` automatically. Never publish that zip. Otherwise pass `--model-selector-zip PATH`. Its own install notes say Mac; on Windows it is untested.
+- **Model pilot is macOS only and adds a short wait.** A judged prompt waits for the judge before its first token: about half a second with Jev, about two seconds with Haiku. Follow-ups and prompts where you chose the model are not judged. Its savings are estimates, and only one model selector can be on at a time. Accuracy, method and limits: [`mods/model-pilot/README.md`](mods/model-pilot/README.md).
 - **Jev shadow hooks only log.** They write to `~/.claude/jev/decisions.jsonl` and never block or inject. `jev-gate` (before Skill calls) does add a verdict line and can delay a Skill call by up to 20 s.
 - **RTK's hook gets rtk's full path** at install time, because Claude Code's hook PATH may not include `~/.local/bin` or Homebrew. If you move rtk, re-run `install.sh`. Other tools (`trashmv`, `jev`, `codegraph`, `graphify`) live in `~/.local/bin`, which must be on your PATH.
 - **Index hooks skip small repos.** They only index git repos with 10 or more source files, and never your home folder.
@@ -200,7 +212,7 @@ This repo: MIT ([LICENSE](LICENSE)). Installed from their own sources:
 | agentmemory | `rohitg00/agentmemory` | Apache-2.0 |
 | remember | `anthropics/claude-plugins-official` | Community licence |
 | Deliberation | `antonbabenko/agent-plugins` | MIT |
-| Model Selector pack (optional, **not in this repo**) | Ben AI | No licence published: not redistributable. All credit to its author |
+| Model pilot | this repo, `mods/model-pilot` | MIT |
 
 ## Files
 
@@ -210,7 +222,8 @@ install.ps1       Windows installer (same flow and options)
 doctor.sh         macOS check of what was installed; --quick skips the MCP check
 doctor.ps1        Windows check; -Quick skips the MCP check
 scan.sh           secret / personal-data scan over what git would publish
-pack-private.sh   for your own machines only: packs a Model Selector copy into private/ (gitignored)
+mods/             Model pilot: a Claude Code mod, with its tests and evaluation sets
+pack-private.sh   no longer used by the installers
 .env.example      every key, where it goes, what works without it
 lib/              tool catalogue, hook fragments, settings merger
 files/            the kit's own scripts, hooks, agents, guides and CLAUDE.md template

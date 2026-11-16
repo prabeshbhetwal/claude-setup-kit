@@ -5,7 +5,7 @@
 #   .\install.ps1 -Tiers core,memory,routing,judge,deliberation
 #   .\install.ps1 -Only caveman,rtk       just these tools (dependencies are added)
 #   .\install.ps1 -List                   print the catalogue and exit
-# Other options: -Skip id,id  -CavemanMode lite|full|ultra  -ModelSelectorZip PATH
+# Other options: -Skip id,id  -CavemanMode lite|full|ultra
 #   -InstallMissing   install missing prerequisites (Python, Git, Node.js, uv, Claude Code CLI) without asking
 #
 # If scripts are blocked: powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -16,7 +16,7 @@
 param(
   [switch]$Yes, [string[]]$Tiers, [string[]]$Only, [string[]]$Skip,
   [ValidateSet('', 'lite', 'full', 'ultra')][string]$CavemanMode = '',
-  [string]$ModelSelectorZip = '', [switch]$List, [switch]$InstallMissing
+  [switch]$List, [switch]$InstallMissing
 )
 $ErrorActionPreference = 'Continue'
 $KIT = $PSScriptRoot
@@ -25,7 +25,7 @@ $CL = Join-Path $H '.claude'
 $BIN = Join-Path $H '.local\bin'
 $TS = Get-Date -Format 'yyyyMMdd-HHmmss'
 $TIERS_ALL = @('core', 'memory', 'routing', 'judge', 'deliberation')
-$DEPS = @(@('indexes', 'codegraph'), @('indexes', 'graphify'), @('mjudge', 'jev'), @('model-selector', 'routing'))
+$DEPS = @(@('indexes', 'codegraph'), @('indexes', 'graphify'), @('mjudge', 'jev'))
 $script:Sel = New-Object System.Collections.Generic.List[string]
 $script:Todo = New-Object System.Collections.Generic.List[string]
 $script:Failed = New-Object System.Collections.Generic.List[string]
@@ -104,12 +104,8 @@ if ($Only) {
     foreach ($id in $ids) { if ($on.Contains($id)) { Add $id } }
   }
 }
-# Your own copy of the kit may carry the pack in private\ (pack-private.sh; gitignored, never published).
-if (-not $ModelSelectorZip -and (Test-Path (Join-Path $KIT 'private\claude-model-selector.zip'))) { $ModelSelectorZip = Join-Path $KIT 'private\claude-model-selector.zip' }
-if ((Has 'model-selector') -and -not $ModelSelectorZip) {
-  if ($Interactive) { $ModelSelectorZip = Read-Host '  Path to your Model Selector zip (Enter to skip)' }
-  if (-not $ModelSelectorZip) { Drop 'model-selector'; Info 'Model Selector pack skipped (no zip given)' }
-}
+# Model pilot reads the session transcript with /bin/sh and tail: macOS only.
+if (Has 'model-pilot') { Drop 'model-pilot'; Info 'Model pilot is macOS only: left out on Windows' }
 # Skips first: a skipped tool also removes whatever needs it, so dependencies never pull it back in.
 $skipList = New-Object System.Collections.Generic.List[string]
 foreach ($id in (Split-Ids $Skip)) { if (-not (Item $id)) { Write-Host "Unknown tool in -Skip: $id (see -List)"; exit 2 }; $skipList.Add($id) }
@@ -178,7 +174,7 @@ function Find-Prereqs {
   foreach ($p in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", $env:CLAUDE_CODE_GIT_BASH_PATH)) {
     if ($p -and (Test-Path $p)) { $script:GitBash = $p; break }
   }
-  $pluginIds = @('caveman', 'adhd', 'ponytail', 'context-mode', 'codegraph', 'supermemory', 'cognee', 'agentmemory', 'remember', 'model-selector', 'deliberation')
+  $pluginIds = @('caveman', 'adhd', 'ponytail', 'context-mode', 'codegraph', 'supermemory', 'cognee', 'agentmemory', 'remember', 'deliberation')
   $lack = @()
   if (-not $script:PY) { $lack += 'python' }
   if (-not $script:GitBash -or -not (Cmd 'git')) { $lack += 'git' }
@@ -354,16 +350,6 @@ if (Has 'remember') { [void](Plugin 'anthropics/claude-plugins-official' 'claude
 if (Has 'routing') {
   Copy-Kit (Join-Path $KIT 'files\hooks\routing-card.sh') "$CL\hooks\routing-card.sh" 'replace'
   foreach ($f in (Get-ChildItem (Join-Path $KIT 'files\agents') -Filter *.md)) { Copy-Kit $f.FullName "$CL\agents\$($f.Name)" 'keep' }
-}
-if (Has 'model-selector') {
-  $dest = "$CL\local-marketplaces"; New-Item -ItemType Directory -Force -Path $dest | Out-Null
-  $tmp = Join-Path $env:TEMP "kit-ms-$TS"; Expand-Archive -Path $ModelSelectorZip -DestinationPath $tmp -Force
-  $mj = Get-ChildItem $tmp -Recurse -Filter marketplace.json | Where-Object { $_.Directory.Name -eq '.claude-plugin' } | Select-Object -First 1
-  if ($mj) {
-    $m = Get-Content $mj.FullName -Raw | ConvertFrom-Json; $src = $mj.Directory.Parent.FullName
-    if (-not (Test-Path "$dest\$($m.name)")) { Copy-Item $src "$dest\$($m.name)" -Recurse }
-    foreach ($p in $m.plugins) { [void](Plugin "$dest\$($m.name)" $m.name $p.name) }
-  } else { Fail "no .claude-plugin\marketplace.json in $ModelSelectorZip" }
 }
 
 # ---------------------------------------------------------------- judge

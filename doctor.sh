@@ -124,8 +124,13 @@ if has routing; then
   for a in haiku-lean sonnet-lean; do [ -f "$CL/agents/$a.md" ] && pass "agent $a" || fail "agent $a missing"; done
 fi
 
-if has model-selector; then
-  for p in model-selector model-router handoff cache-clock; do plugin_on "$p@claude-model-selector"; done
+if has model-pilot; then
+  plugin_on "model-pilot@claude-setup-kit"
+  [ -f "$CL/local-marketplaces/claude-setup-kit/model-pilot/hooks/register.tsx" ] && pass "model pilot files" || fail "model pilot files missing (re-run ./install.sh)"
+  other=$(python3 -c 'import json,sys
+try: print(" ".join(k for k, v in json.load(open(sys.argv[1])).get("enabledPlugins", {}).items() if v is True and k.endswith("@claude-model-selector")))
+except Exception: pass' "$S" 2>/dev/null)
+  [ -z "$other" ] && pass "model pilot is the only model selector switched on" || fail "another model selector is also on ($other): two would each pick a model (claude plugin disable <name>)"
 fi
 
 # judge

@@ -1,0 +1,82 @@
+// model-pilot evaluation set. One JSON object per line. `tier` is the least capable tier that does the job reliably; `effort` the fitting level. Labels were written before any run.
+{"id":"h01","prompt":"What is the capital of Australia?","tier":"haiku","effort":"low"}
+{"id":"h02","prompt":"how do I undo my last git commit but keep the changes?","tier":"haiku","effort":"low"}
+{"id":"h03","prompt":"What's the difference between let and const in JavaScript?","tier":"haiku","effort":"low"}
+{"id":"h04","prompt":"Translate 'the meeting is moved to Thursday' into Spanish and French.","tier":"haiku","effort":"low"}
+{"id":"h05","prompt":"Summarise this in two sentences: The quarterly review found that onboarding time fell from nine days to four after the checklist was introduced, though two teams reported that the checklist skipped security training and had to be patched in week three. Leadership wants the checklist adopted company-wide by March with the training step restored.","tier":"haiku","effort":"low"}
+{"id":"h06","prompt":"run npm test and tell me how many tests failed","tier":"haiku","effort":"low"}
+{"id":"h07","prompt":"what does HTTP 429 mean","tier":"haiku","effort":"low"}
+{"id":"h08","prompt":"Reword this to sound friendlier: 'Your request has been rejected because the form was incomplete.'","tier":"haiku","effort":"low"}
+{"id":"h09","prompt":"list the files in src/ and tell me which is largest","tier":"haiku","effort":"low"}
+{"id":"h10","prompt":"thanks, that's all for now","tier":"haiku","effort":"low"}
+{"id":"h11","prompt":"What's the cron expression for every weekday at 9am?","tier":"haiku","effort":"low"}
+{"id":"h12","prompt":"convert 72 fahrenheit to celsius","tier":"haiku","effort":"low"}
+{"id":"h13","prompt":"Read package.json and tell me which version of react we're on.","tier":"haiku","effort":"low"}
+{"id":"h14","prompt":"Tag each of these support messages as billing, bug or feature request: 1) I was charged twice. 2) The export button does nothing. 3) Could you add dark mode?","tier":"haiku","effort":"low"}
+{"id":"h15","prompt":"what's the syntax for a python list comprehension with a condition?","tier":"haiku","effort":"low"}
+{"id":"h16","prompt":"show me git status","tier":"haiku","effort":"low"}
+{"id":"h17","prompt":"Is 'affect' or 'effect' right here: 'the change will ___ all users'?","tier":"haiku","effort":"low"}
+{"id":"h18","prompt":"Give me a one-paragraph plain-English explanation of what a JWT is.","tier":"haiku","effort":"low"}
+{"id":"h19","prompt":"fix the typo in the README title: it says 'Instalation'","tier":"haiku","effort":"low"}
+{"id":"h20","prompt":"What time zone is Sydney in and what's its UTC offset in January?","tier":"haiku","effort":"low"}
+{"id":"h21","prompt":"Turn this list into a markdown table with columns Name and Role: Ana - designer, Ben - engineer, Chidi - PM","tier":"haiku","effort":"low"}
+{"id":"s01","prompt":"Add a --dry-run flag to scripts/cleanup.sh so it prints what it would delete instead of deleting.","tier":"sonnet","effort":"medium"}
+{"id":"s02","prompt":"Write unit tests for the parseDate function in src/utils/date.ts, covering invalid input and leap years.","tier":"sonnet","effort":"medium"}
+{"id":"s03","prompt":"The pagination on /users returns page 2 twice: offset is computed as page * size instead of (page - 1) * size in listUsers. Fix it and add a regression test.","tier":"sonnet","effort":"medium"}
+{"id":"s04","prompt":"Refactor the three copy-pasted fetch wrappers in api/client.ts into one helper with typed options.","tier":"sonnet","effort":"medium"}
+{"id":"s05","prompt":"Write a Python script that reads a CSV of orders and prints total revenue per month.","tier":"sonnet","effort":"medium"}
+{"id":"s06","prompt":"Explain how the auth middleware in server/middleware/auth.ts decides whether a request is allowed. Walk through the code.","tier":"sonnet","effort":"medium"}
+{"id":"s07","prompt":"Add a loading spinner to the Save button in SettingsForm.tsx while the request is in flight, and disable the button.","tier":"sonnet","effort":"medium"}
+{"id":"s08","prompt":"Review this diff for bugs:\n```diff\n- if (user.age > 18) allow()\n+ if (user.age >= 18 && user.verified) allow()\n+ else if (user.guardian) allow()\n```","tier":"sonnet","effort":"medium"}
+{"id":"s09","prompt":"Convert this callback-based function to async/await and keep the behaviour the same:\n```js\nfunction load(id, cb) { db.get(id, (err, row) => { if (err) return cb(err); cache.set(id, row, () => cb(null, row)) }) }\n```","tier":"sonnet","effort":"medium"}
+{"id":"s10","prompt":"Write a SQL query that returns the top 5 customers by total order value in the last 90 days, from tables customers(id, name) and orders(id, customer_id, total, created_at).","tier":"sonnet","effort":"medium"}
+{"id":"s11","prompt":"Add input validation to the POST /signup handler: email format, password at least 12 characters, and return 422 with field errors.","tier":"sonnet","effort":"medium"}
+{"id":"s12","prompt":"Draft a one-page project update for stakeholders from these notes: launch slipped a week due to the payment provider's sandbox outage; QA found 14 bugs, 11 fixed; marketing assets are ready; risk is the app store review time.","tier":"sonnet","effort":"medium"}
+{"id":"s13","prompt":"Set up a GitHub Actions workflow that runs lint and tests on every pull request for this Node project.","tier":"sonnet","effort":"medium"}
+{"id":"s14","prompt":"Write a regex that matches Australian mobile numbers in the formats 04xx xxx xxx and +61 4xx xxx xxx, and explain each part.","tier":"sonnet","effort":"medium"}
+{"id":"s15","prompt":"The build fails with 'Cannot find module ./config' after I moved config.ts into src/lib. Update the imports.","tier":"sonnet","effort":"medium"}
+{"id":"s16","prompt":"Add a dark mode toggle to the header that stores the choice in localStorage and respects prefers-color-scheme on first load.","tier":"sonnet","effort":"medium"}
+{"id":"s17","prompt":"Write a Dockerfile for this FastAPI app with a multi-stage build and a non-root user.","tier":"sonnet","effort":"medium"}
+{"id":"s18","prompt":"Extract the email-sending code from OrderService into its own Mailer class and update the two call sites.","tier":"sonnet","effort":"medium"}
+{"id":"s19","prompt":"Compare these two approaches for our small internal dashboard and recommend one in a short paragraph: server-rendered pages with htmx, or a React SPA. Team of two, no dedicated frontend engineer.","tier":"sonnet","effort":"medium"}
+{"id":"s20","prompt":"Write a bash function that retries a command up to 5 times with exponential backoff.","tier":"sonnet","effort":"medium"}
+{"id":"s21","prompt":"Add TypeScript types to this function and fix what the compiler would complain about:\n```js\nexport function groupBy(items, keyFn) { const out = {}; for (const i of items) { (out[keyFn(i)] ||= []).push(i) } return out }\n```","tier":"sonnet","effort":"medium"}
+{"id":"s22","prompt":"Update the README install section: we now need Node 22 and pnpm instead of npm. Keep the rest.","tier":"sonnet","effort":"low"}
+{"id":"o01","prompt":"Our payment worker intermittently double-charges customers under load, roughly once in ten thousand jobs. We use retries, a Redis lock and Postgres. Find the root cause.","tier":"opus","effort":"high"}
+{"id":"o02","prompt":"why is prod slow since yesterday's deploy?","tier":"opus","effort":"high"}
+{"id":"o03","prompt":"Design the data model and API for multi-tenant billing with usage-based pricing, proration and invoices that must never change once issued.","tier":"opus","effort":"high"}
+{"id":"o04","prompt":"Do a security review of our password reset flow: token generation, storage, expiry, and the reset endpoint. Tell me what an attacker could do.","tier":"opus","effort":"high"}
+{"id":"o05","prompt":"This test passes locally and fails about one run in five on CI with a timeout. I've no idea why. Help me work out what's going on.","tier":"opus","effort":"high"}
+{"id":"o06","prompt":"We need to move 400 million rows from a single Postgres table to a partitioned one with zero downtime. Plan the migration and the rollback.","tier":"opus","effort":"high"}
+{"id":"o07","prompt":"Memory on the API pods climbs about 50MB an hour until they are OOM-killed. Heap snapshots show lots of closures retained by an event emitter. Where should I look and how do I confirm it?","tier":"opus","effort":"high"}
+{"id":"o08","prompt":"Should we build our own job queue on Postgres or adopt Kafka? 30 engineers, about 2k jobs a second at peak, strict ordering per customer. Give me the trade-offs and a recommendation.","tier":"opus","effort":"high"}
+{"id":"o09","prompt":"Refactor the whole permissions system from role checks scattered across 60 files to a central policy engine without changing behaviour. Propose the approach and the order of changes.","tier":"opus","effort":"high"}
+{"id":"o10","prompt":"Two users editing the same document sometimes lose each other's changes. We send full-document saves with a version number. Explain exactly how the loss happens and design a fix.","tier":"opus","effort":"high"}
+{"id":"o11","prompt":"Our p99 latency doubled but p50 is flat, CPU is fine, and it only happens on the nodes in one availability zone. What are the hypotheses and how do I rule each out?","tier":"opus","effort":"high"}
+{"id":"o12","prompt":"Write an algorithm that, given a list of meetings with start and end times and room capacities, assigns rooms to minimise the number of rooms used while respecting capacity. Prove it is correct or say where it is only a heuristic.","tier":"opus","effort":"high"}
+{"id":"o13","prompt":"Review the architecture of this service for failure modes: it reads from a queue, calls three external APIs, writes to two databases and emits an event. What breaks when each dependency is slow or down, and what would you change?","tier":"opus","effort":"high"}
+{"id":"o14","prompt":"I fixed the crash you found but now the totals are off by a few cents on some invoices. It only happens with discounts and tax together. Find out why.","tier":"opus","effort":"high"}
+{"id":"o15","prompt":"We store prices as floats. Finance says reports are a few cents out. Assess how deep the problem goes across the codebase and plan the fix, including the data already stored.","tier":"opus","effort":"high"}
+{"id":"o16","prompt":"it still deadlocks","recent":"user: The importer hangs forever when two files are uploaded at once. Can you find out why?\nassistant: I traced two code paths that take the catalog lock and the file lock in opposite orders. I reordered the acquisition in importer.py so both take catalog first. [tools: Read, Grep, Edit, Bash]","tier":"opus","effort":"high"}
+{"id":"o17","prompt":"Is our use of JWTs safe? We put the user's role in the token, sign with HS256 using a secret shared by four services, and tokens last 30 days with no revocation.","tier":"opus","effort":"high"}
+{"id":"o18","prompt":"Decide our caching strategy for the product catalogue: 2 million items, prices change hourly, stock changes every few seconds, and pages must never show an item as in stock when it is not.","tier":"opus","effort":"high"}
+{"id":"f01","prompt":"Audit this entire codebase (about 400k lines across 12 services), identify the systemic architecture problems, and produce a prioritised redesign plan with the evidence for each finding. Take as long as you need.","tier":"fable","effort":"high"}
+{"id":"f02","prompt":"Build a complete production-ready expense management system from this one-line brief: 'employees submit receipts, managers approve, finance exports to accounting'. Design it, implement backend and frontend, write tests, and document it. Work autonomously until it is done.","tier":"fable","effort":"high"}
+{"id":"f03","prompt":"Research the current state of post-quantum cryptography migration for a bank: standards, library maturity, performance, regulatory timelines and a phased plan. I want a thorough report with sources, checked for contradictions between them.","tier":"fable","effort":"high"}
+{"id":"c01","prompt":"yes, do it","recent":"user: The checkout page double-submits orders when the network is slow. Find the cause.\nassistant: The cause is that the submit handler is not idempotent and the retry fires before the first response. I propose adding an idempotency key generated client-side and enforced by a unique index. Shall I implement it across the client, the API and the migration? [tools: Read, Grep]","tier":"opus","effort":"high"}
+{"id":"c02","prompt":"ok and what's that in kilometres?","recent":"user: how far is 26.2 miles in metres?\nassistant: 26.2 miles is about 42,165 metres.","tier":"haiku","effort":"low"}
+{"id":"c03","prompt":"now add the same flag to the other two scripts","recent":"user: Add a --dry-run flag to scripts/cleanup.sh\nassistant: Done. cleanup.sh now accepts --dry-run and prints the files it would delete. [tools: Read, Edit, Bash]","tier":"sonnet","effort":"medium"}
+{"id":"c04","prompt":"what was the name of that file again?","recent":"user: Design the data model for multi-tenant billing.\nassistant: I wrote the proposal to docs/billing-model.md with the tables, the invariants and the migration order. [tools: Write]","context_tokens":180000,"tier":"haiku","effort":"low"}
+{"id":"c05","prompt":"Summarise what we've decided so far in five bullets.","recent":"user: Should we use Kafka or Postgres for the queue?\nassistant: Given strict per-customer ordering and 2k jobs a second, I recommend Postgres with SKIP LOCKED now and a clear exit to Kafka. Details above.","context_tokens":90000,"tier":"haiku","effort":"low"}
+{"id":"c06","prompt":"that didn't work, same error","recent":"user: The build fails with 'Cannot find module ./config' after I moved config.ts. Update the imports.\nassistant: I updated the three imports in src/ to point at src/lib/config. [tools: Grep, Edit]","tier":"sonnet","effort":"medium"}
+{"id":"c07","prompt":"hmm, are you sure that's the real cause? the lock has a 30s TTL and jobs take 2s","recent":"user: Our payment worker intermittently double-charges customers under load. Find the root cause.\nassistant: The most likely cause is the Redis lock expiring before the charge completes, letting a second worker take the job.","tier":"opus","effort":"high"}
+{"id":"a01","kind":"agent","prompt":"Search the repository for every place that reads the FEATURE_FLAGS environment variable and report file paths and line numbers. Do not change anything.","tier":"haiku","effort":"low"}
+{"id":"a02","kind":"agent","prompt":"Implement the Mailer class described in docs/mailer.md in src/mail/mailer.ts with unit tests. Run the tests and report the result.","tier":"sonnet","effort":"medium"}
+{"id":"a03","kind":"agent","prompt":"Read the last 500 lines of logs/app.log and summarise the distinct error types with counts.","tier":"haiku","effort":"low"}
+{"id":"a04","kind":"agent","prompt":"Investigate why the nightly reconciliation job produces different totals from the ledger on roughly 1 in 50 nights. You have read access to the job code, the ledger service and two weeks of logs. Report the root cause with evidence.","tier":"opus","effort":"high"}
+{"id":"x01","prompt":"Here is a long error log, tell me which line is the first error:\n2026-01-02 10:00:01 INFO boot\n2026-01-02 10:00:02 INFO connect db\n2026-01-02 10:00:03 WARN slow query 812ms\n2026-01-02 10:00:04 ERROR pool exhausted\n2026-01-02 10:00:05 ERROR request failed 500\n2026-01-02 10:00:06 INFO retry","tier":"haiku","effort":"low"}
+{"id":"x02","prompt":"write a haiku about a failing build","tier":"haiku","effort":"low"}
+{"id":"x03","prompt":"Quick one: bump the version in package.json from 1.4.2 to 1.4.3.","tier":"haiku","effort":"low"}
+{"id":"x04","prompt":"fix it","recent":"user: what does this error mean: TypeError: Cannot read properties of undefined (reading 'map') at ProductList.tsx:14\nassistant: products is undefined on first render because the fetch has not resolved; line 14 calls products.map before the data arrives.","tier":"sonnet","effort":"medium"}
+{"id":"x05","prompt":"Explain the CAP theorem to a new graduate in a few paragraphs.","tier":"haiku","effort":"low"}
+{"id":"x06","prompt":"Can you check whether our rate limiter is correct? It uses a sliding window in Redis with INCR and EXPIRE in two separate calls, per user, across 8 app servers.","tier":"opus","effort":"high"}
