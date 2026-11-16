@@ -269,7 +269,7 @@ if (Has 'indexes') {
   foreach ($f in @('ensure-indexes.sh', 'codegraph-gate.py', 'kit-timeout')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
 }
 if (Has 'measure') {
-  foreach ($f in @('token-scorecard.py', 'token-compare.py', 'token-daily.py', 'token-monthly.py')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
+  foreach ($f in @('token-scorecard.py', 'token-compare.py', 'token-daily.py', 'token-monthly.py', 'token-tools.py')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
   New-Item -ItemType Directory -Force -Path "$CL\cache\token-compare\monthly" | Out-Null
   if (-not (Test-Path "$CL\cache\token-compare\change-date")) { [IO.File]::WriteAllText("$CL\cache\token-compare\change-date", (Get-Date -Format 'yyyy-MM-dd')) }
   # Freeze the week before install now, while those transcripts still exist.

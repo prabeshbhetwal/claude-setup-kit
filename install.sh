@@ -309,7 +309,7 @@ if has indexes; then
   copy_file "$KIT/files/hooks/kit-timeout" "$CL/hooks/kit-timeout" exec replace
 fi
 if has measure; then
-  for f in token-scorecard.py token-compare.py token-daily.py token-monthly.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
+  for f in token-scorecard.py token-compare.py token-daily.py token-monthly.py token-tools.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
   mkdir -p "$CL/cache/token-compare/monthly"
   [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
   # Freeze the week before install now, while those transcripts still exist (Claude Code prunes old ones).

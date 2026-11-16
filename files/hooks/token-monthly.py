@@ -12,6 +12,7 @@ Saved has two parts, reported apart:
   estimated - per session type, (median first-request context in the frozen before-week) minus (median since
               install), times that type's requests in the month; the same method as token-daily.py.
 Without the kit ~= used + measured + estimated. Totals follow how much you worked; the saving lines are the kit's part.
+Per tool: one line each for Caveman, context-mode, CodeGraph and Graphify, from token-tools.py; never added to the totals.
 """
 import glob
 import importlib.machinery
@@ -34,6 +35,7 @@ def _load(name, file):
 
 D = _load("token_daily", "token-daily.py")  # its saving() and, through it, token-compare's reader and baseline
 TC = D.TC
+T = _load("token_tools", "token-tools.py")  # per-tool lines: Caveman, context-mode, CodeGraph, Graphify
 OUT = os.path.join(TC.OUT, "monthly")
 
 
@@ -100,7 +102,7 @@ def routed(ym):
     return n
 
 
-def render(ym, tot, fams, est, rtk, router):
+def render(ym, tot, fams, est, rtk, router, tools):
     saved, covered, post = est
     used = tot["tokens"] + tot["output"]
     measured = rtk or 0
@@ -120,12 +122,14 @@ def render(ym, tot, fams, est, rtk, router):
          f"| Context by model | {', '.join(f'{k} {fm(v)}' for k, v in sorted(fams.items(), key=lambda x: -x[1]) if v) or 'none'} |"]
     if router is not None:
         L.append(f"| Sub-agent tasks moved to a cheaper model (model-router) | {router} |")
+    L += T.lines(tools)
     L += ["", "Notes:",
           f"- The estimate covers {covered} of {tot['requests']} requests (session types with {D.MIN_N}+ sessions before and after install)."
           if covered else f"- Estimate needs {D.MIN_N}+ sessions of one type both in the week before install and since; {post} requests qualify so far.",
           "- RTK's figure is a floor: output it cut would also have been re-read on later turns.",
           "- A negative estimate means sessions got bigger since install; it is shown, not hidden.",
-          "- Not counted: Caveman, context-mode, CodeGraph and Graphify savings (no per-month counter exists for them)."]
+          "- Per-tool lines stay out of the totals: RTK and context-mode both trim shell output, so adding them would count some of it twice.",
+          "- context-mode's bytes are also a floor: kept-out output would have been re-read on later turns."]
     return "\n".join(L)
 
 
@@ -136,10 +140,15 @@ def summary(ym, tot, est, rtk):
 
 def selftest():
     tot = defaultdict(int, tokens=900, output=100, requests=10, main=8, sub=2)
-    text = render("2026-12", tot, {"opus": 900}, (100, 10, 10), 500, 3)
+    tools = T.selftest()
+    text = render("2026-12", tot, {"opus": 900}, (100, 10, 10), 500, 3, tools)
+    assert "| Caveman | 0.7k output tokens" in text and "6.0 KB of tool output kept out" in text and "~1.5k tokens" in text, text
+    assert "| CodeGraph | 1 calls, 0.3 KB returned" in text and "| Graphify | 1 reads of graphify-out" in text, text
     assert "| Used (context read + output) | 1.0k |" in text, text
     assert "**1.6k**" in text and "(37.5%)" in text, text  # 1000 used + 500 RTK + 100 estimated; 600 / 1600
-    assert "not enough data yet" in render("2026-12", tot, {}, (0, 0, 4), None, None)
+    none = {"caveman": None, "context-mode": None, "codegraph": [0, 0], "graphify": [0, 0]}
+    text = render("2026-12", tot, {}, (0, 0, 4), None, None, none)
+    assert "not enough data yet" in text and "no Caveman log found" in text and "no context-mode records found" in text
     assert month_bounds("2026-12")[1] == datetime(2027, 1, 1)
     print("selftest ok")
 
@@ -155,7 +164,8 @@ if __name__ == "__main__":
     baseline = json.load(open(TC.SNAP)) if os.path.exists(TC.SNAP) else []
     est = D.saving(by_type, firsts, baseline)
     rtk = rtk_saved(ym)
-    text = render(ym, tot, fams, est, rtk, routed(ym))
+    tools = T.collect(start, end)
+    text = render(ym, tot, fams, est, rtk, routed(ym), tools)
     os.makedirs(OUT, exist_ok=True)
     path = os.path.join(OUT, f"{ym}.md")
     open(path, "w").write(text + "\n")
