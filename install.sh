@@ -440,7 +440,10 @@ if has indexes; then
 fi
 if has measure; then
   for f in token-scorecard.py token-compare.py token-daily.py token-report.py token-tools.py token-ledger.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
-  mkdir -p "$CL/cache/token-compare/reports"
+  mkdir -p "$CL/cache/token-compare/reports" "$CL/monitor/bin"
+  # Setup monitor (weekly scorecard) and taste memory: docs/setup-monitor-design.md
+  for f in "$KIT"/files/monitor/*.py; do copy_file "$f" "$CL/monitor/bin/$(basename "$f")" exec replace; done
+  copy_file "$KIT/files/hooks/taste-recall.py" "$CL/hooks/taste-recall.py" exec replace
   [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
   # Freeze the 30 days before install now, while those transcripts still exist (Claude Code prunes old ones).
   [ -f "$CL/cache/token-compare/before-week.json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (30 days before install)"; }
@@ -474,6 +477,26 @@ PLIST
       launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
       launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "token report job scheduled (daily check at 09:00; writes a report when your period ends)" || fail "launchctl bootstrap $PL"
     else info "test HOME: report job written to $PL, not loaded"; fi
+  fi
+  LBL=com.claude-setup-kit.setup-monitor; PL="$LA/$LBL.plist"
+  cat > "$PL.tmp" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$LBL</string>
+  <key>ProgramArguments</key><array><string>$(command -v python3)</string><string>$CL/monitor/bin/setup-monitor.py</string><string>weekly</string><string>--notify</string></array>
+  <key>StartCalendarInterval</key><dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer></dict>
+  <key>StandardOutPath</key><string>$CL/monitor/launchd.log</string>
+  <key>StandardErrorPath</key><string>$CL/monitor/launchd.log</string>
+</dict></plist>
+PLIST
+  if cmp -s "$PL.tmp" "$PL"; then rm -f "$PL.tmp"; ok "setup monitor already scheduled (Mondays 08:15)"
+  else
+    mv "$PL.tmp" "$PL"
+    if [ "$HOME" = "$(eval echo "~$(id -un)")" ]; then
+      launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
+      launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "setup monitor scheduled (Mondays 08:15: scorecard, trend, taste candidates)" || fail "launchctl bootstrap $PL"
+    else info "test HOME: setup monitor job written to $PL, not loaded"; fi
   fi
   fi
 fi

@@ -142,6 +142,13 @@
         "async": true,
         "timeout": 30,
         "match": "token-ledger.py"
+      },
+      {
+        "event": "UserPromptSubmit",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/taste-recall.py\"",
+        "timeout": 5,
+        "match": "taste-recall.py"
       }
     ]
   },
