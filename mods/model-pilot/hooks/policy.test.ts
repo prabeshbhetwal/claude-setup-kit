@@ -228,3 +228,20 @@ test('a sub-agent spawned for a small job is noted, a fitting one is not', async
   expect(spawnNote('general-purpose', 'sonnet', 'sonnet', chat)?.includes('72k-token start-up')).toBe(true)
   expect(spawnNote('sonnet-lean', 'sonnet', 'opus', { ...chat, contextTokens: 200_000, warm: { opus: { at: HOUR - 1000, tokens: 200_000 } } })).toBe(null)
 })
+
+test('staying on a warmer, stronger model lowers the effort one level instead of switching down', async () => {
+  const warm = { opus: { at: 10 * HOUR - 60_000, tokens: 150_000 } }
+  const d = decide(base({ verdict: verdict('sonnet', 0.9, 'high'), contextTokens: 150_000, warm }))
+  expect(d.tier).toBe('opus')
+  expect(d.effort).toBe('medium')
+  // The person's own effort is never lowered.
+  expect(decide(base({ verdict: verdict('sonnet', 0.9, 'high'), contextTokens: 150_000, warm, explicit: { effort: 'high' } })).effort).toBe('high')
+  // On the required tier itself, the judged effort stands.
+  expect(decide(base({ verdict: verdict('sonnet', 0.9, 'high'), menuTier: 'sonnet' })).effort).toBe('high')
+})
+
+test('turn cost follows effort: more thinking is dearer on the same tier', async () => {
+  const i = { contextTokens: 100_000, warm: {}, now: 0, cacheTtlMs: HOUR }
+  expect(estTurnCost('fable', 'opus', i, 1, 'low') < estTurnCost('fable', 'opus', i, 1, 'xhigh')).toBe(true)
+  expect(estTurnCost('sonnet', 'sonnet', i, 1, 'xhigh') < estTurnCost('opus', 'sonnet', i, 1, 'low')).toBe(true)
+})

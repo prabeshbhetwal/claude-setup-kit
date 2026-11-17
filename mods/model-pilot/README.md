@@ -45,12 +45,28 @@ Privacy mode switches off both Jev and Haiku: rules only, with the same floor. W
 | `privateFolders` | empty | Comma-separated folders where privacy mode is always on |
 | `allowUpgrade` | on | Let a hard task run above the menu's model |
 | `subagents` | on | Route sub-agents that name no model |
+| `confirmFable` | on | When the pilot (not you) picks Fable, ask first: why, the effort and why it is enough, and the cost against Opus. Buttons: run on Fable, Fable for this chat, use Opus. No answer runs on Opus |
 | `handoff` | `auto` | When to offer a fresh chat: `auto`, `250k`, `500k`, `750k`, `never` |
 | `jev` | on | Use Jev as the first judge when its command and key are present |
 | `judgeBudgetMs` | 2500 | Longest wait for the judge at the first request of a turn |
 | `judgeModel` | `haiku` | The model for the Haiku step |
 | `shadow` | off | Judge and log but change nothing: a trial run |
 | `band` | on | The row above the prompt |
+
+## Model or effort
+
+Effort changes how much a model thinks and writes per request; the model sets the price of every token, including the conversation it re-reads each step. Mean output tokens per main-thread request, from 440 transcripts on the author's machine (October to November 2026; thinking included):
+
+| Tier | low | medium | high | xhigh |
+|---|---|---|---|---|
+| Haiku 5.5 | 160 | 330 | ~500 (estimate) | ~700 (estimate) |
+| Sonnet 5.5 | 200 | 890 | ~1,050 (estimate) | ~1,250 (estimate) |
+| Opus 5.5 | 650 | 680 | 810 | 900 |
+| Fable 5.2 | 520 | 940 | 1,220 | 2,350 |
+
+These are observed, not controlled: harder tasks get higher effort, so each step up is an upper bound on what effort alone adds. With Claude Code's prompts of 100k tokens and more, re-reading the chat costs more than the output: a Sonnet request at 120k tokens of cache reads is about $0.012 of input and $0.01 of output at xhigh, an Opus request about $0.024 of input before any output. So Sonnet at high effort still costs less per request than Opus at low; it costs more only when it needs more steps or a retry, which this table cannot show. Haiku's prompts over 100k tokens pay its long-prompt rate, so Haiku at high effort (about $0.007 a request) costs about half of Sonnet at low (about $0.014), not a tenth: Haiku saves money only when it needs no more steps than Sonnet would.
+
+What the pilot does with this: it prices each candidate model at its own effort, and when it stays on a stronger model whose cache is warm (cheaper than switching down), it asks for one effort level less than the task was judged to need. An effort you set yourself is never lowered.
 
 ## Measured (November 2026, Claude Code 2.1.325)
 

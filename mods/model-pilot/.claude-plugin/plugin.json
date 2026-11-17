@@ -69,6 +69,12 @@
       "description": "The small model that judges each prompt: an alias or a model id.",
       "default": "haiku"
     },
+    "confirmFable": {
+      "type": "boolean",
+      "title": "Ask before Fable",
+      "description": "When the pilot (not you) picks Fable, ask first: why Fable, the effort and why it is enough, and the cost against Opus. Off: Fable runs without asking (for example on a plan where cost does not matter). No answer runs on Opus.",
+      "default": true
+    },
     "shadow": {
       "type": "boolean",
       "title": "Shadow mode (observe only)",

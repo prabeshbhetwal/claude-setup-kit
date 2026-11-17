@@ -1,4 +1,5 @@
 // model-pilot policy: pure functions, no engine calls. Everything here is unit-tested.
+import { effortBelow, outPerStep } from './effort'
 import { rateOf } from './prices'
 
 export type Tier = 'haiku' | 'sonnet' | 'opus' | 'fable'
@@ -90,11 +91,14 @@ export function estTurnCost(
   required: Tier,
   i: Pick<DecideInput, 'contextTokens' | 'warm' | 'now' | 'cacheTtlMs'>,
   horizon: number,
+  effort?: Effort | 'max',
 ): number {
   const p = rateOf(tier, i.contextTokens)
   const w = i.warm[tier]
   const cached = w && i.now - w.at < i.cacheTtlMs ? Math.min(w.tokens, i.contextTokens) : 0
-  const { steps, out } = SHAPE[required]
+  const { steps } = SHAPE[required]
+  // With an effort, output follows what this tier writes per request at it (measured); without, the job's rough size.
+  const out = effort === undefined ? SHAPE[required].out : steps * outPerStep(tier, effort)
   const first = cached * p.cacheRead + (i.contextTokens - cached) * p.cacheWrite
   const perTurn = (steps - 1) * i.contextTokens * p.cacheRead + out * p.out
   const later = steps * i.contextTokens * p.cacheRead + out * p.out
@@ -147,20 +151,25 @@ export function decide(i: DecideInput): Decision {
     if (w && i.now - w.at < i.cacheTtlMs) ceiling = maxTier(ceiling, t)
   }
   const horizon = 1 + Math.min(Math.max(i.lowerStreak, 0), 3)
+  // A tier above the one required does the job with less thinking: one effort level
+  // lower, unless the person set the effort. Each candidate is priced at its own effort.
+  const isOwnEffort = i.explicit.effort !== undefined || i.isEffortPinned
+  const effortOn = (t: Tier): Effort | 'max' | undefined =>
+    !isOwnEffort && rank(t) > rank(required) ? effortBelow(v.effort) : effort
   let best: Tier = required
   let bestCost = Infinity
   for (const t of TIERS) {
     if (rank(t) < rank(required) || rank(t) > rank(ceiling)) continue
-    const cost = estTurnCost(t, required, i, horizon)
+    const cost = estTurnCost(t, required, i, horizon, effortOn(t) ?? v.effort)
     if (cost < bestCost) {
       best = t
       bestCost = cost
     }
   }
   if (best !== required) {
-    reason = `${reason} (${required} would do; ${best} is cheaper while its cache is warm)`
+    reason = `${reason} (${required} would do; ${best} at ${effortOn(best) ?? 'the menu'} effort is cheaper while its cache is warm)`
   }
-  return { tier: best, effort, required, source: i.source, reason, confidence: v.confidence }
+  return { tier: best, effort: effortOn(best), required, source: i.source, reason, confidence: v.confidence }
 }
 
 // ------------------------------------------- where a job is cheapest to run

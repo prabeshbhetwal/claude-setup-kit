@@ -6,7 +6,7 @@
 #   ./install.sh --tiers core,memory,routing,judge,deliberation   (no questions)
 #   ./install.sh --only caveman,rtk   just these tools (dependencies are added)
 #   ./install.sh --list               print the catalogue and exit
-# Other options: --skip id,id  --caveman-mode lite|full|ultra  --handoff auto|250k|500k|750k|never
+# Other options: --skip id,id  --caveman-mode lite|full|ultra  --handoff auto|250k|500k|750k|never  --confirm-fable yes|no
 #   --report week|fortnight|month|off   how often the token report runs (default month)
 #   --install-missing   install missing prerequisites (Homebrew, Node.js, uv, Claude Code CLI) without asking
 #
@@ -23,7 +23,7 @@ TIERS_ALL="core memory routing judge deliberation"
 SELECTED=" "
 TODO=""
 FAILED=""
-MODE=ask; TIERS=""; ONLY=""; SKIP=""; HANDOFF=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
+MODE=ask; TIERS=""; ONLY=""; SKIP=""; HANDOFF=""; CONFIRM_FABLE=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
 TTY=0; { : </dev/tty; } 2>/dev/null && TTY=1   # a keyboard to answer questions on
 
 say()  { printf '%s\n' "$*"; }
@@ -53,6 +53,7 @@ while [ $# -gt 0 ]; do
     --skip) val "$1" "${2:-}"; SKIP=$(csv "$2"); shift ;;
     --caveman-mode) val "$1" "${2:-}"; CAVEMODE=$2; shift ;;
     --handoff) val "$1" "${2:-}"; HANDOFF=$2; shift ;;
+    --confirm-fable) val "$1" "${2:-}"; CONFIRM_FABLE=$2; shift ;;
     --report) val "$1" "${2:-}"; REPORT=$2; shift ;;
     --install-missing) INSTALL_MISSING=1 ;;
     --list) awk -F'|' '!/^#/ {printf "%-15s %-13s %s\n    %s\n", $1, $2, $3, $5}' "$CAT"; exit 0 ;;
@@ -237,6 +238,14 @@ if has model-pilot && [ -z "$HANDOFF" ]; then
   fi
 fi
 case "$HANDOFF" in ''|auto|250k|500k|750k|never) ;; *) info "Fresh-chat choice '$HANDOFF' not known: using auto"; HANDOFF=auto ;; esac
+if has model-pilot && [ -z "$CONFIRM_FABLE" ]; then
+  say ""
+  say "Model pilot: Fable is the most capable model and the dearest. When the pilot (not you) picks it,"
+  say "it can ask first, with the reason, the effort and the cost against Opus. Say no if cost does not"
+  say "matter to you (for example on a top plan) and Fable should run without a question."
+  if ask "Ask before the pilot runs a prompt on Fable?" y; then CONFIRM_FABLE=yes; else CONFIRM_FABLE=no; fi
+fi
+case "$CONFIRM_FABLE" in ''|yes|no) ;; *) info "Fable choice '$CONFIRM_FABLE' not known: asking"; CONFIRM_FABLE=yes ;; esac
 [ "$SELECTED" = " " ] && { say "Nothing selected. Nothing changed."; exit 0; }
 say ""; say "Ready to install:"
 for id in $SELECTED; do say "  - $(field "$id" 3)"; done
@@ -493,16 +502,21 @@ if has model-pilot; then
     claude plugin disable "$p" >/dev/null 2>&1 && ok "switched off $p (to go back: claude plugin enable $p, and switch Model pilot off)" || fail "could not switch off $p (run: claude plugin disable $p)"
   done
   plugin "$dest" claude-setup-kit model-pilot
-  if [ "$HANDOFF" != auto ]; then
-    python3 - "$CL/settings.json" "$HANDOFF" "$TS" <<'PY' && ok "fresh-chat offer set to $HANDOFF" || fail "could not save the fresh-chat choice (set it in /config, under Model pilot)"
+  if [ "$HANDOFF" != auto ] || [ "$CONFIRM_FABLE" = no ]; then
+    python3 - "$CL/settings.json" "$HANDOFF" "$CONFIRM_FABLE" "$TS" <<'PY' && ok "Model pilot: fresh-chat offer $HANDOFF, ask before Fable: ${CONFIRM_FABLE:-yes}" || fail "could not save the Model pilot choices (set them in /config, under Model pilot)"
 import json, os, shutil, sys
-path, value, ts = sys.argv[1:4]
+path, handoff, fable, ts = sys.argv[1:5]
 d = json.load(open(path)) if os.path.exists(path) else {}
 opts = d.setdefault("pluginConfigs", {}).setdefault("model-pilot@claude-setup-kit", {}).setdefault("options", {})
-if opts.get("handoff") != value:
+want = dict(opts)
+if handoff != "auto":
+    want["handoff"] = handoff
+if fable == "no":
+    want["confirmFable"] = False
+if want != opts:
     if os.path.exists(path):
         shutil.copy2(path, f"{path}.bak-kit-{ts}")
-    opts["handoff"] = value
+    opts.clear(); opts.update(want)
     json.dump(d, open(path, "w"), indent=2)
 PY
   fi

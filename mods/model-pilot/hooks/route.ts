@@ -26,6 +26,8 @@ export type Options = {
   judgeModel: string
   /** Judge and log, but leave every request as the menu has it. */
   isShadow: boolean
+  /** Ask before a turn the pilot (not the person) would run on Fable. */
+  confirmFable: boolean
 }
 
 type Pending = { at: number; input?: JudgeInput; judged: Promise<Judged | undefined> }

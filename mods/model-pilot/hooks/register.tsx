@@ -5,7 +5,9 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { appendLog, isRoutableAgent, judge } from './engine'
 import { runEval } from './evalrun'
-import { agentTier, HANDOFF_PROMPT, spawnNote, tierOf } from './policy'
+import { afterAnswer, FABLE_CHAT, fableQuestion, needsFableYes, RUN_FABLE, USE_OPUS } from './fable'
+import { agentTier, estTurnCost, HANDOFF_PROMPT, spawnNote, tierOf } from './policy'
+import type { Decision } from './policy'
 import { begin, CACHE_TTL_MS, chainOf, finish, isPrivateHere, noteSwitch, prestart, record, settle, turnOf, warmNow } from './route'
 import { bandText } from './band'
 import { costText, HELP, statusText } from './status'
@@ -26,6 +28,18 @@ async function activeFlags($: EngineInterface, isEnabled: boolean): Promise<Pilo
   return f.isOn ? f : undefined
 }
 
+let isFableOkHere = false
+
+/** When the pilot, not the person, chose Fable: ask first (unless switched off). Anything but a yes runs on Opus. */
+async function withFableYes($: EngineInterface, o: Options, d: Decision, menuModel: string): Promise<Decision> {
+  if (!needsFableYes(d, tierOf(menuModel) ?? 'sonnet', o.isShadow, o.confirmFable && !isFableOkHere)) return d
+  const i = { contextTokens: (await $.session.usage()).context.tokens ?? 0, warm: warmNow(), now: await $.clock.now(), cacheTtlMs: CACHE_TTL_MS }
+  const q = fableQuestion(d, estTurnCost('fable', d.required, i, 1, d.effort), estTurnCost('opus', d.required, i, 1, d.effort))
+  const answer = await $.ui.ask(q, { options: [RUN_FABLE, FABLE_CHAT, USE_OPUS], header: 'Fable?' }).catch(() => undefined)
+  if (answer === FABLE_CHAT) isFableOkHere = true
+  return afterAnswer(d, answer)
+}
+
 export const register: Register = (on, options) => {
   const o: Options = {
     privacy: options.privacy === true,
@@ -36,6 +50,7 @@ export const register: Register = (on, options) => {
     judgeBudgetMs: typeof options.judgeBudgetMs === 'number' && options.judgeBudgetMs > 0 ? options.judgeBudgetMs : 2500,
     judgeModel: typeof options.judgeModel === 'string' && options.judgeModel.trim() ? options.judgeModel.trim() : 'haiku',
     isShadow: options.shadow === true,
+    confirmFable: options.confirmFable !== false,
   }
   const isEnabled = options.enabled !== false
   on('session.start', async ($, e, next) => {
@@ -76,7 +91,7 @@ export const register: Register = (on, options) => {
       try {
         const f = await read($, flags)
         const settled = await settle($, o, f, rec, e)
-        rec.decision = settled.decision
+        rec.decision = await withFableYes($, o, settled.decision, e.model)
         if (settled.flags) {
           const pinned = settled.flags
           await update($, flags, () => pinned)
