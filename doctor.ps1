@@ -77,6 +77,8 @@ if (Has 'indexes') {
   Hook-On 'SessionStart' 'ensure-indexes.sh' 'index build/refresh'
   Hook-On 'Stop' 'ensure-indexes.sh' 'index refresh after each turn'
   Hook-On 'UserPromptSubmit' 'codegraph-gate.py' 'CodeGraph context'
+  Selftest 'index-first.py' { & $PY "$CL\hooks\index-first.py" selftest }
+  Hook-On 'PreToolUse' 'index-first.py' 'index first (CodeGraph before Grep)'
 }
 if (Has 'measure') {
   Selftest 'token-compare.py' { & $PY "$CL\hooks\token-compare.py" selftest }; Selftest 'token-daily.py' { & $PY "$CL\hooks\token-daily.py" selftest }

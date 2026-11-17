@@ -435,6 +435,7 @@ fi
 if has indexes; then
   copy_file "$KIT/files/hooks/ensure-indexes.sh" "$CL/hooks/ensure-indexes.sh" exec replace
   copy_file "$KIT/files/hooks/codegraph-gate.py" "$CL/hooks/codegraph-gate.py" exec replace
+  copy_file "$KIT/files/hooks/index-first.py" "$CL/hooks/index-first.py" exec replace
   copy_file "$KIT/files/hooks/kit-timeout" "$CL/hooks/kit-timeout" exec replace
 fi
 if has measure; then

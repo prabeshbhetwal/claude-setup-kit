@@ -25,7 +25,12 @@ Model pilot is on: it sets this chat's model + effort per prompt and offers a fr
 CARD
 else cat <<'CARD'
 Never switch this chat's model mid-chat (the new model re-reads the whole chat at the cache-write price); bad result → /rewind, raise effort one level, then one model up at lower effort. Token stack stays on in helpers: context-mode, CodeGraph, RTK, Caveman.
-Context above ~250k, or task finished → hand off to a fresh chat (written summary, or `/handoff` if that mod is installed) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour. If the user insists on switching here: suggest `/compact` first (cache still warm), then switch, so the new model reads a summary, not the whole chat.
+Hand off by tokens, not turns: move when turns left × (context − 130k) × 0.1 > 162k (≈14 turns at 250k, ≈5 at 430k; under ~150k stay), always before ~900k, or task finished → hand off to a fresh chat (written summary, or `/handoff` if that mod is installed) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour. If the user insists on switching here: suggest `/compact` first (cache still warm), then switch, so the new model reads a summary, not the whole chat.
 CARD
 fi
+cat <<'CARD'
+Context hygiene: long artefacts (spec, plan, report, draft >~40 lines) → write to a file; chat shows a ≤10-line summary + path; amend in the file, never re-paste; re-read only the changed section. Helpers hand back conclusions + paths, not dumps.
+Screens: text first, pixels last. Web → read_page / get_page_text / find (Playwright: browser_snapshot); apps → app_ax_find; screenshot only to judge looks, at scale 0.5 or zoom on a region; many images to judge → mjudge, if installed (no Claude tokens). Text the user wants to show → ask them to paste it or give the path.
+Code questions in a repo with .codegraph/ → codegraph_explore before Read/Grep ("where is / who calls / what breaks"); Read only files you will edit.
+CARD
 echo "Details: read ~/.claude/guides/agents-and-models.md when delegating."

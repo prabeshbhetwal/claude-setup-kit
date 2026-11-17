@@ -116,7 +116,7 @@ Pick the tiers you want; `--list` prints every tool.
 | core | CodeGraph | A map of your code: where things are, what calls what | Node.js |
 | core | Graphify | A plain-language overview of a project and its docs | uv |
 | core | Safe delete | Blocks `rm`; files go to `~/_trash/` instead | — |
-| core | Auto index hooks | Keeps the CodeGraph/Graphify maps fresh in the background | — |
+| core | Auto index hooks | Keeps the CodeGraph/Graphify maps fresh in the background (git repos, and folders that already have an index). Also "index first": in an indexed repo a code search with Grep is held until CodeGraph has been asked once that session (released after 2 reminders, so it never traps), Read and Glob get a one-time hint, and architecture questions get pointed at the Graphify report. Decisions log to `~/.claude/cache/index-first.jsonl` | — |
 | core | Token measuring | A record of every turn's tokens, a 30-day baseline, and a weekly, fortnightly or monthly report | — |
 | core | Rules file + guides | Tells Claude when to use each tool you installed | 4 placeholders |
 | guard | Deny rules | Claude can never read `.env`, `~/.ssh`, `~/.aws`, or run `git reset --hard`, `git clean` or a force push, in any permission mode | — |

@@ -21,7 +21,15 @@ if [ ! -t 0 ]; then
   [ -n "$cwd" ] && cd "$cwd" 2>/dev/null
 fi
 
-r=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0   # not a repo: plain conversation, nothing to index
+r=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  # Not a git repo: never build an index here, but keep one that already exists fresh (at most every 10 min).
+  r=$(d=$PWD; while [ "$d" != / ] && [ "$d" != "$HOME" ]; do [ -d "$d/.codegraph" ] && { echo "$d"; break; }; d=$(dirname "$d"); done)
+  [ -n "$r" ] || exit 0
+  s="$HOME/.claude/cache/index-builds/$(printf %s "$r" | tr / _).nogit"; mkdir -p "${s%/*}"
+  [ -n "$(find "$s" -mmin -10 2>/dev/null)" ] && exit 0
+  touch "$s"; ( cd "$r" && timeout 600 "$CG" sync "$r" ) >> "$s.log" 2>&1 </dev/null &
+  exit 0
+}
 [ "$r" = "$HOME" ] && exit 0                                # never index the whole home dir
 
 # Both indexes only pay off on real code. Below this many tracked source files,

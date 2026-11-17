@@ -96,6 +96,8 @@ if has indexes; then
   hook_on SessionStart "ensure-indexes.sh" "index build/refresh"
   hook_on Stop "ensure-indexes.sh" "index refresh after each turn"
   hook_on UserPromptSubmit "codegraph-gate.py" "CodeGraph context"
+  selftest python3 "$CL/hooks/index-first.py" selftest
+  hook_on PreToolUse "index-first.py" "index first (CodeGraph before Grep)"
 fi
 if has measure; then
   selftest python3 "$CL/hooks/token-compare.py" selftest

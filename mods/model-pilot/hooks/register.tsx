@@ -252,8 +252,8 @@ export const register: Register = (on, options) => {
             }} />
           </Box>
         </Box>
-        <Text dimColor={!t.isWarning} color={t.isWarning ? 'warning' : undefined} wrap="truncate-end">{t.line}</Text>
-        {t.tip !== null && <Text dimColor italic wrap="truncate-end">Tip: {t.tip}</Text>}
+        <Text dimColor={!t.isWarning} color={t.isWarning ? 'warning' : undefined} wrap="wrap">{t.line}</Text>
+        {t.tip !== null && <Text dimColor italic wrap="wrap">Tip: {t.tip}</Text>}
       </Box>
     )
   })

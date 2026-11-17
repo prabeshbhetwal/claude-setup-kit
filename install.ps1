@@ -347,7 +347,7 @@ if (Has 'verify') {
   Todo 'Done checks: in each project you want checked, add .claude\verify.cmd or .claude\verify.ps1 (for example: npm test --silent); optionally .claude\lint.cmd, which gets the edited file''s path.'
 }
 if (Has 'indexes') {
-  foreach ($f in @('ensure-indexes.sh', 'codegraph-gate.py', 'kit-timeout')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
+  foreach ($f in @('ensure-indexes.sh', 'codegraph-gate.py', 'index-first.py', 'kit-timeout')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
 }
 if (Has 'measure') {
   foreach ($f in @('token-scorecard.py', 'token-compare.py', 'token-daily.py', 'token-report.py', 'token-tools.py', 'token-ledger.py')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }

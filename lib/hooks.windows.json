@@ -48,6 +48,30 @@
         "command": "python \"$HOME/.claude/hooks/codegraph-gate.py\"",
         "match": "codegraph-gate.py",
         "shell": "bash"
+      },
+      {
+        "event": "PreToolUse",
+        "matcher": "Grep|Glob|Bash|Read",
+        "type": "command",
+        "command": "python \"$HOME/.claude/hooks/index-first.py\" pre",
+        "timeout": 10,
+        "match": "index-first.py\" pre"
+      },
+      {
+        "event": "PostToolUse",
+        "matcher": "mcp__codegraph__.*|Edit|Write|MultiEdit",
+        "type": "command",
+        "command": "python \"$HOME/.claude/hooks/index-first.py\" post",
+        "timeout": 10,
+        "match": "index-first.py\" post"
+      },
+      {
+        "event": "UserPromptSubmit",
+        "matcher": null,
+        "type": "command",
+        "command": "python \"$HOME/.claude/hooks/index-first.py\" prompt",
+        "timeout": 10,
+        "match": "index-first.py\" prompt"
       }
     ]
   },
