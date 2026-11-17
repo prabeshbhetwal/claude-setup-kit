@@ -104,7 +104,7 @@ def main():
         results.append({"turn": i, "text": t["text"][:200], "expect": t.get("expect"), "start": start, "end": end,
                         "isError": res is None or res.get("is_error", False), "costUsd": (res or {}).get("total_cost_usd"),
                         "ms": (res or {}).get("duration_ms"), "reply": ((res or {}).get("result") or "")[:600],
-                        "subtype": (res or {}).get("subtype")})
+                        "subtype": (res or {}).get("subtype"), "usage": (res or {}).get("usage")})
         print(f"turn {i}: {'ERR' if results[-1]['isError'] else 'ok'} cost={results[-1]['costUsd']}", file=sys.stderr)
         if res is None:
             break

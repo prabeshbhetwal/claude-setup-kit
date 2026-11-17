@@ -50,17 +50,21 @@ def judge(task, repo, reply, py):
     return r.returncode == 0, tail[:60]
 
 
-def run(o, task, arm):
-    name = f"{task['id']}.{arm}"
+def run(o, task, arm, rep=1):
+    name = f"{task['id']}.{arm}.r{rep}"
     repo = os.path.join(o.out, "repos", name)
     fixture(repo, task)
     turns = os.path.join(o.out, "repos", name + ".turns.jsonl")
     open(turns, "w").write(json.dumps({"text": task["prompt"]}) + "\n")
     settings = {"permissions": {"allow": ALLOW}}
     argv = [sys.executable, os.path.join(HERE, "drive.py"), "--name", name, "--turns", turns, "--out", o.out,
-            "--model", o.menu, "--cwd", repo, "--budget", "3", "--timeout", "900", "--setting-sources", "project",
-            "--settings", json.dumps(settings),
-            "--extra", json.dumps(["--strict-mcp-config", "--permission-mode", "acceptEdits"])]
+            "--model", o.menu, "--cwd", repo, "--budget", "3", "--timeout", "900"]
+    if arm == "full":  # the user's own settings, plugins, hooks and MCP servers
+        argv += ["--setting-sources", "user,project,local", "--settings", json.dumps(settings),
+                 "--extra", json.dumps(["--permission-mode", "acceptEdits"])]
+    else:
+        argv += ["--setting-sources", "project", "--settings", json.dumps(settings),
+                 "--extra", json.dumps(["--strict-mcp-config", "--permission-mode", "acceptEdits"])]
     if arm == "pilot":
         argv += ["--plugin", MOD]
     env = dict(os.environ, PATH=os.path.join(o.venv, "bin") + os.pathsep + os.environ["PATH"])
@@ -70,7 +74,7 @@ def run(o, task, arm):
     ok, why = judge(task, repo, t["reply"], os.path.join(o.venv, "bin", "python3"))
     models = sorted({r["model"] for r in t["requests"]})
     pick = next((p for p in res["pilot"] if p.get("kind") == "turn"), {})
-    return {"task": task["id"], "arm": arm, "pass": ok, "why": why, "costUsd": t["costUsd"] or 0, "ms": t["ms"],
+    return {"task": task["id"], "arm": arm, "rep": rep, "usage": t.get("usage"), "pass": ok, "why": why, "costUsd": t["costUsd"] or 0, "ms": t["ms"],
             "isError": t["isError"], "models": models, "picked": pick.get("picked"), "effort": pick.get("picked_effort"),
             "judge": pick.get("judge"), "pilotCost": pick.get("cost_usd")}
 
@@ -82,12 +86,13 @@ def main():
     a.add_argument("--only", default="")
     a.add_argument("--workers", type=int, default=2)
     a.add_argument("--venv", required=True)
+    a.add_argument("--reps", type=int, default=1)
     a.add_argument("--menu", default="claude-fable-5-2")
     o = a.parse_args()
     tasks = json.load(open(os.path.join(HERE, "tasks.json")))
     if o.only:
         tasks = [t for t in tasks if t["id"] in o.only.split(",")]
-    jobs = [(t, arm) for t in tasks for arm in o.arms.split(",")]
+    jobs = [(t, arm, k) for k in range(1, o.reps + 1) for t in tasks for arm in o.arms.split(",")]
     with ThreadPoolExecutor(o.workers) as ex:
         rows = list(ex.map(lambda j: run(o, *j), jobs))
     json.dump(rows, open(os.path.join(o.out, "ab.json"), "w"), indent=1)
