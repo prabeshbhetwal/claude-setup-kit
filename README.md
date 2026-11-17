@@ -1,29 +1,22 @@
 # claude-setup-kit
 
-A guided, one-command setup that makes Claude Code cheaper to run and easier to work with, on macOS and Windows.
+A guided, one-command setup that makes Claude Code cheaper to run and easier to work with, on macOS.
 
 It installs a set of free, open-source tools that cut the tokens Claude spends, give it memory across chats, send work to cheaper models when that is safe, and stop it from permanently deleting your files. The installer explains every tool in plain words, lets you tick the ones you want, asks before each change, and installs anything your computer is missing first (with your OK).
 
 - **Free core.** The core tier needs no accounts and no API keys.
 - **Nothing hidden.** Every change is listed and asked for first. Your own files are backed up or kept, never overwritten.
 - **Safe to re-run.** A second run changes nothing that is already in place.
-- **Checks itself.** `doctor.sh` / `doctor.ps1` tests every installed piece and tells you what is left for you to do.
+- **Checks itself.** `doctor.sh` tests every installed piece and tells you what is left for you to do.
 
 ## Quick start
 
-**macOS**
 ```bash
 git clone https://github.com/prabeshbhetwal/claude-setup-kit.git
 cd claude-setup-kit
 ./install.sh
 ```
 
-**Windows** (PowerShell)
-```powershell
-git clone https://github.com/prabeshbhetwal/claude-setup-kit.git
-cd claude-setup-kit
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
 
 You need the Claude app (or a Claude Code plan) and an internet connection. Everything else the installer can install for you.
 
@@ -47,22 +40,22 @@ You need the Claude app (or a Claude Code plan) and an internet connection. Ever
 6. **It shows the full list and asks "Go ahead?"** Nothing has changed up to this point. Saying no stops cleanly.
 7. **It checks your computer for what the tools need** and offers to install anything missing, one at a time, with a plain explanation:
 
-   | Missing | Why it is needed | How it is installed (macOS / Windows) |
+   | Missing | Why it is needed | How it is installed |
    |---|---|---|
-   | Apple Command Line Tools / Python 3 + Git | every kit script uses python3 and git | `xcode-select --install` / `winget` |
-   | Homebrew (macOS only) | the standard Mac installer, used for Node.js and uv | brew.sh's official script (asks for your Mac password) |
-   | Claude Code command-line tool | lets the installer add plugins | `claude.ai/install.sh` / `install.ps1` |
-   | Node.js | runs context-mode and CodeGraph, fetches Grill Me | `brew install node` / `winget` |
-   | uv | installs Graphify in its own space | `brew install uv` / `winget` |
+   | Apple Command Line Tools (Python 3 + Git) | every kit script uses python3 and git | `xcode-select --install` |
+   | Homebrew | the standard Mac installer, used for Node.js and uv | brew.sh's official script (asks for your Mac password) |
+   | Claude Code command-line tool | lets the installer add plugins | `claude.ai/install.sh` |
+   | Node.js | runs context-mode and CodeGraph, fetches Grill Me | `brew install node` |
+   | uv | installs Graphify in its own space | `brew install uv` |
 
    Say no to any of them and the installer stops, prints the exact command, and changes nothing of the kit.
-8. **It installs.** Third-party tools come from their own official sources (Claude Code plugin marketplaces, npm, PyPI, Homebrew/winget); this repo bundles none of them. The kit's own small scripts go to `~/.local/bin` and `~/.claude/hooks`.
+8. **It installs.** Third-party tools come from their own official sources (Claude Code plugin marketplaces, npm, PyPI, Homebrew); this repo bundles none of them. The kit's own small scripts go to `~/.local/bin` and `~/.claude/hooks`.
 9. **It prints a short numbered to-do list** of the things only you can do: restart Claude, run the doctor, sign in or add keys for the tools you picked, fill four placeholders in `CLAUDE.md`.
 
 ## After the install
 
 1. Quit and reopen the Claude app (or start a new `claude` session), so the new plugins and hooks load.
-2. Run `./doctor.sh` (Windows: `.\doctor.ps1`). Aim for `0 fail`. A `WARN` is a step still waiting on you, usually a key.
+2. Run `./doctor.sh` . Aim for `0 fail`. A `WARN` is a step still waiting on you, usually a key.
 3. Work through the to-do list. Keys are never typed into Claude's chat: each one says exactly where it goes (see [.env.example](.env.example)).
 4. Open `~/.claude/CLAUDE.md` and fill in the four `{{...}}` placeholders: your name, city and time zone, how Claude should address you, and your English variant.
 
@@ -80,7 +73,7 @@ Inside Claude the installer has no keyboard to answer questions, so it picks the
 ```
 Install the claude-setup-kit in this folder.
 1. Read README.md and .env.example.
-2. Run ./install.sh --tiers core,memory,routing --install-missing  (on Windows: .\install.ps1 -Tiers core,memory,routing -InstallMissing).
+2. Run ./install.sh --tiers core,memory,routing --install-missing.
    Anything that needs my password or a window click (Apple tools, Homebrew): tell me the exact command and wait for me.
 3. Run the doctor script and fix every FAIL, re-running it until there are none.
 4. Walk me through the to-do list one item at a time. Never ask me to paste an API key into this chat.
@@ -92,17 +85,17 @@ Pick the tiers you want; `--list` prints every tool.
 
 ## Options
 
-| macOS | Windows | What it does |
-|---|---|---|
-| `--yes` | `-Yes` | No questions: core tier only |
-| `--tiers core,memory` | `-Tiers core,memory` | No questions: these tiers (`core guard memory routing judge deliberation`) |
-| `--only rtk,caveman` | `-Only rtk,caveman` | Just these tools |
-| `--skip graphify` | `-Skip graphify` | Leave tools out (and anything that needs them) |
-| `--install-missing` | `-InstallMissing` | Install missing prerequisites without asking |
-| `--caveman-mode lite` | `-CavemanMode lite` | Caveman strength: lite, full, ultra |
-| `--handoff 500k` | macOS only | Model pilot: when to offer a fresh chat (`auto`, `250k`, `500k`, `750k`, `never`) |
-| `--report week` | `-Report week` | Token report: `week`, `fortnight`, `month` (default) or `off` |
-| `--list` | `-List` | Print the catalogue and exit |
+| Option | What it does |
+|---|---|
+| `--yes` | No questions: core tier only |
+| `--tiers core,memory` | No questions: these tiers (`core guard memory routing judge deliberation`) |
+| `--only rtk,caveman` | Just these tools |
+| `--skip graphify` | Leave tools out (and anything that needs them) |
+| `--install-missing` | Install missing prerequisites without asking |
+| `--caveman-mode lite` | Caveman strength: lite, full, ultra |
+| `--handoff 500k` | Model pilot: when to offer a fresh chat (`auto`, `250k`, `500k`, `750k`, `never`) |
+| `--report week` | Token report: `week`, `fortnight`, `month` (default) or `off` |
+| `--list` | Print the catalogue and exit |
 
 ## What you can install
 
@@ -112,7 +105,7 @@ Pick the tiers you want; `--list` prints every tool.
 | core | i-have-adhd | Next action first, then short numbered steps | — |
 | core | Ponytail | Smallest change that fully fixes the problem | — |
 | core | context-mode | Big command output is handled off to the side; only the answer comes back | Node.js |
-| core | RTK | Shortens every terminal command's output, keeps the facts | Homebrew / winget |
+| core | RTK | Shortens every terminal command's output, keeps the facts | Homebrew |
 | core | CodeGraph | A map of your code: where things are, what calls what | Node.js |
 | core | Graphify | A plain-language overview of a project and its docs | uv |
 | core | Safe delete | Blocks `rm`; files go to `~/_trash/` instead | — |
@@ -149,7 +142,7 @@ Every key, where it goes, and what still works without it: [.env.example](.env.e
 
 The rule behind this group: **can it be taken back?** Code edits can (git), so Claude does them freely. Leaked secrets, wiped work and force-pushed history can't, so they become deny rules. Claude Code applies deny rules in every permission mode, auto and bypass included.
 
-- **Deny rules** are added to `permissions.deny` in `~/.claude/settings.json`; your own rules are kept. Add more there yourself (for example `"Read(./secrets/**)"`). Only the Bash and file tools are covered: on Windows the PowerShell tool is not.
+- **Deny rules** are added to `permissions.deny` in `~/.claude/settings.json`; your own rules are kept. Add more there yourself (for example `"Read(./secrets/**)"`).
 - **Bash sandbox:** off unless you tick it. Some installers and tools that write outside the project will ask or fail inside it; `/sandbox` changes it any time.
 - **Done checks** do nothing until a project opts in. Add an executable `.claude/verify` to a project, for example:
 
@@ -158,7 +151,7 @@ The rule behind this group: **can it be taken back?** Code edits can (git), so C
   npm test --silent
   ```
 
-  Keep its output quiet: the last 40 lines of a failure go back to Claude, which tries up to three times before stopping. `.claude/lint` (optional) gets the edited file's path after each edit. On Windows use `verify.cmd` or `verify.ps1`.
+  Keep its output quiet: the last 40 lines of a failure go back to Claude, which tries up to three times before stopping. `.claude/lint` (optional) gets the edited file's path after each edit.
 - **Bigger jobs** are safer in a cloud session (Claude Code on the web): a fresh copy of the repo, nothing on your computer at risk.
 
 ### For teams: managed settings
@@ -176,11 +169,11 @@ A mod for Claude Code on macOS, in [`mods/model-pilot`](mods/model-pilot/README.
 
 ## What it changes on your computer
 
-- **Third-party tools** come from their own sources: Claude Code plugin marketplaces, npm, PyPI (via uv), Homebrew or winget. Nothing third-party is bundled in this repo.
+- **Third-party tools** come from their own sources: Claude Code plugin marketplaces, npm, PyPI (via uv), or Homebrew. Nothing third-party is bundled in this repo.
 - **The kit's own scripts** go to `~/.local/bin` and `~/.claude/hooks`. A differing file is backed up to `*.bak-kit-<time>` first.
 - **Your own docs are never overwritten.** If `CLAUDE.md`, a guide or an agent already exists and differs, the kit's version lands next to it as `*.kit-new`.
 - **`~/.claude/settings.json` is merged, never replaced.** Backed up to `settings.json.bak-kit-<time>` first. Only missing hooks and env keys are added.
-- **Token report**: a launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.token-report.plist`) or a Windows scheduled task (`claude-setup-kit token-report`) that checks daily at 09:00 and writes a report when your chosen period ends; nothing is scheduled if you chose off. A Stop hook (`token-ledger.py`) adds one line per finished turn to `~/.claude/cache/token-compare/ledger.jsonl`.
+- **Token report**: a launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.token-report.plist`) that checks daily at 09:00 and writes a report when your chosen period ends; nothing is scheduled if you chose off. A Stop hook (`token-ledger.py`) adds one line per finished turn to `~/.claude/cache/token-compare/ledger.jsonl`.
 - **A record** of what was installed in `~/.claude/kit/installed`; the doctor checks exactly that list.
 
 To undo a change: restore the `*.bak-kit-<time>` copy next to the file, remove the plugin with `claude plugin uninstall <name>`, and delete the launchd agent or scheduled task.
@@ -217,7 +210,7 @@ Approved rules come back only when they fit the prompt, and are silent otherwise
 
 ## Known limits
 
-- **Tested on macOS only.** The Windows installer (`install.ps1`) has not been run on Windows yet. Linux is not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
+- **Tested on macOS only.** Windows and Linux are not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
 - **Model pilot is macOS only and adds a short wait.** A judged prompt waits for the judge before its first token. Follow-ups and prompts where you chose the model are not judged. Its savings are estimates.
 - **Index hooks skip small repos.** They only build indexes for git repos with 10 or more source files, and never for your home folder.
 - **Licences of the installed tools differ.** context-mode is Elastic-2.0, so it cannot be offered as a managed service. RTK's default build includes a BUSL-1.1 engine, free for your own use; `RTK_EDITION=oss` gives the Apache-2.0-only build. remember uses a community licence with no commercial redistribution. The rest are MIT or Apache-2.0.

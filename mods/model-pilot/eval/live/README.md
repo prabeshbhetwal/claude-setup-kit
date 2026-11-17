@@ -63,4 +63,4 @@ To test beside your own setup while another model selector is installed, switch 
 | Never writes settings.json; never changes model mid-turn | One decision per turn, applied to every request of it (live: one model per turn throughout); the mod has no settings write |
 | Jev, then Haiku, then rules; per-judge numbers | Live failure runs; eval tables in the mod README |
 
-Not covered: Windows (the mod is macOS only); comparison with the selector it replaces (kept clean-room: its code was not read or run); very long real-world use (weeks), which shadow mode in daily work would show.
+Not covered: comparison with the selector it replaces (kept clean-room: its code was not read or run); very long real-world use (weeks), which shadow mode in daily work would show.

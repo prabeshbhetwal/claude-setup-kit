@@ -9,9 +9,9 @@
 # Logs: ~/.claude/cache/index-builds/<repo-path>.log
 mode=${1:-start}
 CG="$HOME/.local/bin/codegraph"; GF="$HOME/.local/bin/graphify"   # pinned: older graphify copies sit earlier on some PATHs
-[ -x "$CG" ] || CG=$(command -v codegraph || echo "$CG")            # Windows: npm/uv put codegraph.cmd / graphify.exe elsewhere
+[ -x "$CG" ] || CG=$(command -v codegraph || echo "$CG")
 [ -x "$GF" ] || GF=$(command -v graphify || echo "$GF")
-PY=$(command -v python3 || command -v python)                       # Windows has python, often no python3
+PY=$(command -v python3 || command -v python)
 SHA=$(command -v shasum || command -v sha1sum)
 TO=$(command -v timeout 2>/dev/null || echo "$HOME/.claude/hooks/kit-timeout")   # macOS has no GNU timeout
 

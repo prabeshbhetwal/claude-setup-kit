@@ -5,7 +5,7 @@
   Stop:                                verify-done.py stop  -> runs <project>/.claude/verify, only if Claude edited files this turn
   verify-done.py selftest
 
-A check is the first of: .claude/<name> (executable), .claude/<name>.sh, .claude/<name>.cmd, .claude/<name>.ps1.
+A check is the first of: .claude/<name> (executable), .claude/<name>.sh.
 Example .claude/verify:  #!/bin/sh
                          npm test --silent
 A failing check exits 2: its last lines go back to Claude, which fixes the failure before finishing.
@@ -26,9 +26,8 @@ def find(project, name):
     base = os.path.join(project, ".claude", name)
     if os.path.isfile(base) and os.access(base, os.X_OK):
         return [base]
-    for ext, pre in ((".sh", ["sh"]), (".cmd", ["cmd", "/c"]), (".ps1", ["powershell", "-NoProfile", "-File"])):
-        if os.path.isfile(base + ext):
-            return pre + [base + ext]
+    if os.path.isfile(base + ".sh"):
+        return ["sh", base + ".sh"]
     return None
 
 
