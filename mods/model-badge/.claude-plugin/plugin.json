@@ -1,0 +1,1 @@
+{ "name": "model-badge", "version": "0.1.0", "description": "Shows which model each sub-agent runs on, beside its Agent row", "types": "./types/index.d.ts" }

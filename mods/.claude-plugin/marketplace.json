@@ -1,5 +1,18 @@
 {
   "name": "claude-setup-kit",
-  "owner": { "name": "claude-setup-kit contributors" },
-  "plugins": [{ "name": "model-pilot", "source": "./model-pilot", "description": "Picks the cheapest Claude model and effort that will do each prompt reliably. macOS." }]
+  "owner": {
+    "name": "claude-setup-kit contributors"
+  },
+  "plugins": [
+    {
+      "name": "model-pilot",
+      "source": "./model-pilot",
+      "description": "Picks the cheapest Claude model and effort that will do each prompt reliably. macOS."
+    },
+    {
+      "name": "model-badge",
+      "source": "./model-badge",
+      "description": "Shows which model each sub-agent runs on, beside its Agent row."
+    }
+  ]
 }
