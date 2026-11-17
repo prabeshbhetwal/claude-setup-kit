@@ -45,7 +45,7 @@ All four have a 1M-token window and 128k max output. Fast mode (Fable and Opus o
 | max | Hard unattended problems (for example a security audit) | Diminishing returns and overthinking; test before using broadly; session-only in Claude Code |
 
 - **Use the default for most work.** Treat effort as a standing preference by type of work, not a dial per task.
-- **Effort before model.** Raise effort before switching model: it is a smaller step and, per Anthropic, usually keeps the cache. Lower effort before dropping a model.
+- **Effort before model.** Raise effort before switching model: it is a smaller step and keeps the cache (measured above). Lower effort before dropping a model.
 - **One hard turn:** the word `ultrathink` in a prompt runs that one turn at xhigh without changing the session's level. "think hard" is not a keyword.
 - **Checkable work** (tests, a verifier): run at low, re-run only the failures at high. Anthropic's example: about 97% solved at $0.17 a task, against 95.3% at $0.29 with everything at high.
 - **Haiku at low** can skip searches and checks on long agent prompts: use medium.
@@ -53,7 +53,7 @@ All four have a 1M-token window and 128k max output. Fast mode (Fable and Opus o
 ## Cache, switching and sessions
 
 - **Cache reads cost 0.1x input; writes up to 2x.** A changed prefix forces a full re-read at the write price: a new model, a new effort level, fast mode on, `/compact`, or the cache expiring (1 hour on a subscription, 5 minutes on an API key).
-- **Set model and effort at the start of a session or right after `/clear`.** `/model`, `/effort` and fast mode all invalidate the cache mid-chat; `opusplan` does so at every switch into and out of plan mode. (The API docs add that the 5.5 family supports per-message effort changes that keep the cache; Claude Code's `/effort` is a session change.)
+- **Set the model at the start of a session or right after `/clear`.** Anthropic's Claude Code article says `/model`, `/effort` and fast mode all invalidate the cache mid-chat, and `opusplan` does so at every switch into and out of plan mode. The API docs say the 5.5 family supports per-message effort changes that keep the cache. **Measured in this kit:** in 89 past cases where effort changed between two requests on the same model, the second request still read the whole chat from the cache. So effort can change turn by turn; a model change is what costs a full re-read.
 - **`/clear` between unrelated tasks; `/compact` when an earlier part of the same task is finished, ideally before a break** (the summary is cheap only while the old chat is cached). **`/rewind` instead of `/compact`** when the last turns went wrong: it costs nothing.
 - **Built-in mixes:** `opusplan` plans on Opus and executes on Sonnet. A lead model with Sonnet sub-agents for scoped work is Anthropic's recommended split ("Use Sonnet subagents to upgrade each package and fix its tests"). Opus as orchestrator with Sonnet sub-agents cost about a third less on work larger than one context window; an advisor pairing paid off only narrowly.
 - **Sub-agents inherit the main model** unless their definition sets `model:`; on another model they also need their own `effort`. Give noisy, repeated jobs a `haiku` or `sonnet` sub-agent. For small jobs a sub-agent is overhead.

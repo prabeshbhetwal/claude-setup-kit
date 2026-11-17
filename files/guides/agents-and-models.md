@@ -7,11 +7,14 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
 ## Tiers (pick first fit)
 | Tier | Use when | Effort |
 |---|---|---|
-| Haiku 5.5 | Simple, repetitive, easy to check: lookups, news/weather/facts, summaries, tagging, conversions, file search, run-and-report | low |
+| Haiku 5.5 | Simple, repetitive, easy to check: lookups, news/weather/facts, summaries, tagging, conversions, file search, run-and-report. Never real coding; never with more than 100k tokens of context (price ×5 there) | medium (low skips searches and checks on long prompts) |
 | Sonnet 5.5 | Scoped: "done" fits in one sentence — feature, fix, tests, draft, focused review | medium (low if back-and-forth) |
-| Opus 5.5 | Hard reasoning/judgment: unknown-cause debugging, design, security, strategy, migrations | medium; high when hard; xhigh only long + hard + critical |
-| Fable 5.2 | Huge open-ended job, judgment + accuracy both critical, hours of autonomous work (2× Opus price) | high (xhigh rare) |
-- Never Max (cost, overthinking). Default effort = model default (Medium).
+| Opus 5.5 | Anthropic's daily driver: hard reasoning/judgment, unknown-cause debugging, design, security, strategy, migrations | medium; high when hard; xhigh only long + hard + critical. Never low for search, verification or debugging (34 points worse at finding defects) |
+| Fable 5.2 | Huge open-ended job, judgment + accuracy both critical, hours of autonomous work (2× Opus price). Only when Opus at xhigh would still fall short; may bill to usage credits on some plans | medium (Claude Code default); high for the hardest; xhigh rare |
+- Never Max (cost, overthinking). Default effort = model default (Medium on Fable 5.2, Opus 5.5, Sonnet 5.5, Haiku 5.5 in Claude Code).
+- **Effort before model.** Raise effort before moving up a model; lower effort before dropping one. Effort changes on the same model keep the prompt cache (measured: 89 of 89 same-model effort changes still read the chat from cache); a model change does not.
+- **One hard turn:** put `ultrathink` in the prompt: that turn runs at xhigh, the session's effort stays.
+- **Checkable work** (tests, a verifier): run at low, re-run only the failures at high.
 
 ## Route each request (main session, before working)
 1. Classify request tier T. Same tier as current → do it here.
@@ -22,7 +25,7 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
 3. **T above current (route up):**
    - Bounded task → helper agent with explicit `model` (`opus`/`fable`) + `effort`. Router keeps named models.
    - Long autonomous Fable/Opus job → `/pick-model handoff` (new chat one model up). Sessions can't start above parent model.
-4. Bad result ladder: fix prompt (`/rewind`) → raise effort one level → move up one model at lower effort (Opus high fails → Fable medium).
+4. Bad result: fix prompt and context first (`/rewind`). Then ask which miss it was: **didn't try hard enough** (skipped a file, no tests, no double-check) → raise effort one level; **didn't know enough** (subtle bug, unfamiliar domain, architecture, ambiguity, confidently wrong with full context) → one model up at lower effort (Opus high fails → Fable medium).
 5. Never switch main model mid-chat yourself (cache loss, lost thinking) → handoff instead.
 6. **Handoff rule:** context above ~250k, or task finished → hand off to a fresh chat (`/handoff`) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour.
 7. **Model pilot on (not shadow) replaces rules 5 and 6:** it picks this chat's model + effort per prompt and offers a fresh chat at the size the user chose (`/pilot status`). One owner per decision: don't apply the 250k rule on top of it.
@@ -41,7 +44,7 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
 ## Roster
 | Role | Agent | Model · effort | Use for |
 |---|---|---|---|
-| Lean runner | `haiku-lean` | Haiku · low | Lookups, web facts, read/search/summarise, run command and report. No edits. |
+| Lean runner | `haiku-lean` | Haiku · medium | Lookups, web facts, read/search/summarise, run command and report. No edits. |
 | Lean worker | `sonnet-lean` | Sonnet · medium | Scoped edits/fixes/tests in few files. |
 | Runner | `haiku-runner` | Haiku · high | Mechanical edits needing broad tools. |
 | Worker | `sonnet-worker` | Sonnet · high (xhigh hard) | Bounded multi-file work needing broad tools. |
