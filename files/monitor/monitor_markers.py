@@ -36,10 +36,10 @@ DEF = [
     ("G1", "Rework commits (revert/fix of <24h-old change)", "lower", "%"),
     ("H1", "Hook timeouts + errors per 100 sessions", "lower", ""),
     ("H2", "Jev fail-opens", "lower", ""),
-    ("P1", "Taste injections per 100 prompts", "info", ""),
-    ("P2", "Taste tokens per injection (median)", "lower", "tok"),
+    ("P1", "House-rule injections per 100 prompts", "info", ""),
+    ("P2", "House-rule tokens per injection (median)", "lower", "tok"),
     ("P3", "Active rules used in last 4 weeks", "higher", "%"),
-    ("P4", "Taste candidates proposed / approved / rejected", "info", ""),
+    ("P4", "House-rule candidates proposed / approved / rejected", "info", ""),
     ("P5", "Repeat corrections after a rule was approved", "lower", ""),
 ]
 NAME = {d[0]: d for d in DEF}
@@ -83,9 +83,9 @@ def markers(w, extra, week, partial=False):
          "headless_sessions": c["headless"], "headless_usd": round(c["usd_headless"], 2)}
     n = {k: int(v) if isinstance(v, float) and k != "headless_usd" else v for k, v in n.items()}
     try:
-        import taste_store
+        import house_rules_store
         a, b = C.week_bounds(week)
-        m.update(taste_store.week_markers(a, b, turns))
+        m.update(house_rules_store.week_markers(a, b, turns))
     except Exception:
         pass
     return {"week": week, "partial": partial, "markers": m, "n": n, "examples": {"Q1": list(w["correction_examples"])}}

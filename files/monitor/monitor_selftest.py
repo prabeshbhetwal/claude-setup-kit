@@ -1,4 +1,4 @@
-"""Fixture checks for setup-monitor and taste memory: python3 setup-monitor.py selftest. No network."""
+"""Fixture checks for setup-monitor and house rules: python3 setup-monitor.py selftest. No network."""
 import json
 import os
 import tempfile
@@ -63,14 +63,14 @@ def run():
         assert C.is_headless("/private/var/folders/x/T/tmp1") and C.is_headless("/a/scratch-2026-11-14-x") and not C.is_headless("/srv/p")
         weeks = {wk: rec}
         assert "| Q1 |" in M.weekly_md(wk, weeks, []) and "n small" in M.weekly_md(wk, weeks, [])
-        taste_checks(d)
+        house_rules_checks(d)
     print("ok")
 
 
-def taste_checks(d):
-    os.environ["TASTE_HOME"] = d
+def house_rules_checks(d):
+    os.environ["HOUSE_RULES_HOME"] = d
     import importlib
-    import taste_store as T
+    import house_rules_store as T
     importlib.reload(T)
     rules = [{"id": "r1", "rule": "Avoid purple gradients and neon glows on landing pages.", "tags": ["colour", "ui"],
               "keywords": ["purple", "gradient", "neon", "landing"], "status": "active"},

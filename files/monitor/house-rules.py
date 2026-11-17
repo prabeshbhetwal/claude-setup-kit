@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Taste memory: learn the user's lasting preferences (UI/UX first) from their own words, for their approval.
-  taste.py mine [--days N] [--no-jev]   # scan transcripts, add or update candidates (nothing becomes a rule here)
-  taste.py review [--all]               # candidates worth a decision, plus rules unused for 8 weeks
-  taste.py approve <cid> ["rule text"] [--tags a,b]   # candidate -> active rule (rewrite it in one sentence if needed)
-  taste.py reject <cid> | retire <rid> | rules
-  taste.py replay [--days N] [--no-jev] [--ui-only] [--rules FILE] # run recall over real past prompts: trigger rate, size, latency, samples
-Store: ~/.claude/taste (git-versioned). Hook: ~/.claude/hooks/taste-recall.py. Design: claude-setup-kit/docs/setup-monitor-design.md.
+"""House rules: learn the user's lasting preferences (UI/UX first) from their own words, for their approval.
+  house-rules.py mine [--days N] [--no-jev]   # scan transcripts, add or update candidates (nothing becomes a rule here)
+  house-rules.py review [--all]               # candidates worth a decision, plus rules unused for 8 weeks
+  house-rules.py approve <cid> ["rule text"] [--tags a,b]   # candidate -> active rule (rewrite it in one sentence if needed)
+  house-rules.py reject <cid> | retire <rid> | rules
+  house-rules.py replay [--days N] [--no-jev] [--ui-only] [--rules FILE] # run recall over real past prompts: trigger rate, size, latency, samples
+Store: ~/.claude/house-rules (git-versioned). Hook: ~/.claude/hooks/house-rules-recall.py. Design: claude-setup-kit/docs/setup-monitor-design.md.
 """
 import glob
 import hashlib
@@ -19,7 +19,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import monitor_collect as C  # noqa: E402
 import monitor_scan as S  # noqa: E402
-import taste_store as T  # noqa: E402
+import house_rules_store as T  # noqa: E402
 
 EXPLICIT = re.compile(r"\b(i (really )?(prefer|like|love|hate|dislike|don'?t (like|want)|want (it|them|this|the|a|more|less))"
                       r"|always|never|don'?t (use|add|put|make|ever)|stop (using|adding|making)|avoid|no more|(too|so|very) (busy|much|many|big|"
@@ -56,7 +56,7 @@ def mine(days, use_jev=True):
                     found.append((s, "correction", t, sid))
     probs = None
     if use_jev and found:
-        probs = T.jev_probs("taste-mine", QUESTION, [T.redact(s) for s, *_ in found], "", timeout=120)
+        probs = T.jev_probs("house-rules-mine", QUESTION, [T.redact(s) for s, *_ in found], "", timeout=120)
     cands, rules = T.load(T.CANDS), T.load(T.RULES)
     added = 0
     for i, (s, kind, t, sid) in enumerate(found):
@@ -121,7 +121,7 @@ def decide(cid, status, text=None, tags=None):
                       "evidence": c["evidence"][:5], "added": int(time.time()), "status": "active", "from": cid})
         T.save(T.RULES, rules)
         T.render()
-        print(f"{rid} active: {rule}\nSupermemory (optional): add_memory \"Taste rule {rid}: {rule}\"")
+        print(f"{rid} active: {rule}\nSupermemory (optional): add_memory \"House rule {rid}: {rule}\"")
     T.save(T.CANDS, cands, f"{status} {cid}")
 
 

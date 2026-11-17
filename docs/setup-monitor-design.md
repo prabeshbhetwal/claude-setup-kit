@@ -1,11 +1,11 @@
-# Setup monitor and taste memory: design
+# Setup monitor and house rules: design
 
 Status: v1, 2026-11-17. Review window: 2026-11-17 (baseline) to 2026-12-15 (month review).
 
 ## Goal
 
 1. **Scorecard.** Tell, week by week, whether a change to the Claude Code setup lowers cost and keeps or raises quality. Local data only, no Claude tokens.
-2. **Taste memory.** Learn the user's lasting preferences (UI/UX first), store them as reviewable rules, and bring the relevant ones back when a matching task starts. Nothing is applied without the user's approval.
+2. **House rules.** Learn the user's lasting preferences (UI/UX first), store them as reviewable rules, and bring the relevant ones back when a matching task starts. Nothing is applied without the user's approval.
 
 ## What already exists (reused, not rebuilt)
 
@@ -78,11 +78,11 @@ The weekly report also lists the setup changes logged that week (`changes.jsonl`
 - `trend`: writes `~/.claude/monitor/reports/trend-<date>.md` over all stored weeks.
 - `note "text"`: appends to `changes.jsonl`.
 - `selftest`: fixture transcripts, asserts every marker.
-- launchd `com.prabesh.setup-monitor.plist`: Mondays 08:15, runs `collect`, `report`, `trend`, taste `mine`, macOS notification with the 3 biggest moves.
+- launchd `com.claude-setup-kit.setup-monitor.plist`: Mondays 08:15, runs `collect`, `report`, `trend`, house-rules `mine`, macOS notification with the 3 biggest moves.
 
-## Part 2: taste memory
+## Part 2: house rules
 
-### Store (`~/.claude/taste/`, a git repo so every change is versioned)
+### Store (`~/.claude/house-rules/`, a git repo so every change is versioned)
 
 - `rules.json`: approved rules. Fields: `id`, `rule` (one sentence, at most 30 words), `tags` (ui, layout, colour, type, motion, copy, a11y, code, workflow), `keywords`, `evidence` [{date, session, quote<=200 chars}], `added`, `status` (active/retired).
 - `candidates.json`: proposed rules waiting for review, same shape plus `count` (times seen) and `kind` (explicit/correction).
@@ -98,21 +98,21 @@ The weekly report also lists the setup changes logged that week (`changes.jsonl`
 
 ### Review (the only way a rule becomes active)
 
-`taste review` prints candidates with evidence; `taste approve <id> ["rewritten rule"]`, `taste reject <id>`, `taste retire <id>`. Inside a Claude session the user can say "review taste candidates" and Claude runs the same commands. Rejected candidates are kept (status rejected) so they are not proposed again. Approval also prints an `add_memory` line for Supermemory so the rule is findable from claude.ai too.
+`house-rules review` prints candidates with evidence; `house-rules approve <id> ["rewritten rule"]`, `house-rules reject <id>`, `house-rules retire <id>`. Inside a Claude session the user can say "review house-rule candidates" and Claude runs the same commands. Rejected candidates are kept (status rejected) so they are not proposed again. Approval also prints an `add_memory` line for Supermemory so the rule is findable from claude.ai too.
 
-### Recall (UserPromptSubmit hook `taste-recall.py`)
+### Recall (UserPromptSubmit hook `house-rules-recall.py`)
 
 - Only approved, active rules. BM25 over rule text + keywords + tags, plus a UI-intent gate (prompt mentions UI words or the cwd has UI files touched recently). Prompts under 4 words or slash commands: silent.
-- If any rule passes BM25, Jev confirms ("Is this rule relevant to the request?", policy `taste_min`, default 0.7). Jev down → top 2 by BM25 above a stricter floor.
-- Output: at most 4 rules, 600 chars (~150 tokens) hard cap, as `Taste (user-approved, apply if relevant): - rule`. Silent when nothing passes.
+- If any rule passes BM25, Jev confirms ("Is this rule relevant to the request?", policy `house_rules_min`, default 0.7). Jev down → top 2 by BM25 above a stricter floor.
+- Output: at most 4 rules, 600 chars (~150 tokens) hard cap, as `House rules (user-approved, apply if relevant): - rule`. Silent when nothing passes.
 - Fails open, 2 s budget, logs to `recall.jsonl`.
 
-### Taste markers (added to the scorecard)
+### House-rule markers (added to the scorecard)
 
 | # | Marker | Better |
 |---|---|---|
-| P1 | Recall rate: prompts with a taste injection, per 100 | info |
-| P2 | Taste tokens: median chars/4 per injection, and weekly total | lower |
+| P1 | Recall rate: prompts with a house-rule injection, per 100 | info |
+| P2 | House-rule tokens: median chars/4 per injection, and weekly total | lower |
 | P3 | Rule use: active rules injected at least once in 4 weeks / active rules | higher |
 | P4 | Candidates proposed / approved / rejected in the week | info |
 | P5 | Repeat corrections: candidates whose evidence includes a date after the matching rule was approved (rule not working) | lower |
@@ -136,9 +136,9 @@ Panel: GPT, Gemini, DeepSeek, Grok via deliberation `plan-reviewer`. All four: a
 | Jev latency on the prompt path | Adopted: 1.5 s Jev timeout in the hook, p50/p95 measured in the test report |
 | Jev privacy | Adopted: only the matched sentence (<=200 chars) is sent, with paths, URLs, emails and long numbers replaced |
 | G2 redundant; Q2/Q4 are behaviour | Adopted: G2 folded into G1; Q2, Q4 marked info |
-| Rule rot | Adopted: P3, and `taste review` lists rules not injected in 8 weeks as retire candidates |
+| Rule rot | Adopted: P3, and `house-rules review` lists rules not injected in 8 weeks as retire candidates |
 | One change at a time | Advice for the user: the report names every change in a week; weeks with 2+ changes are marked "mixed" |
 
 ## Not built (named)
 
-- Automatic rule writing by an LLM, embeddings, a UI dashboard, per-project taste files (tags + cwd keywords cover it for now), Cognee writes (Cognee stays conversation memory; taste lives in its own file).
+- Automatic rule writing by an LLM, embeddings, a UI dashboard, per-project rule files (tags + cwd keywords cover it for now), Cognee writes (Cognee stays conversation memory; taste lives in its own file).

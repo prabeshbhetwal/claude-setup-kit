@@ -1,5 +1,5 @@
-"""Taste memory store and matching, shared by taste.py (capture, review) and hooks/taste-recall.py (recall).
-Store: ~/.claude/taste (TASTE_HOME), a git repo. rules.json = approved, candidates.json = proposed, recall.jsonl = injections.
+"""House rules store and matching, shared by house-rules.py (capture, review) and hooks/house-rules-recall.py (recall).
+Store: ~/.claude/house-rules (HOUSE_RULES_HOME), a git repo. rules.json = approved, candidates.json = proposed, recall.jsonl = injections.
 """
 import json
 import math
@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-HOME = os.environ.get("TASTE_HOME") or os.path.expanduser("~/.claude/taste")
+HOME = os.environ.get("HOUSE_RULES_HOME") or os.path.expanduser("~/.claude/house-rules")
 RULES, CANDS, RECALL, VIEW = (os.path.join(HOME, x) for x in ("rules.json", "candidates.json", "recall.jsonl", "RULES.md"))
 
 TAGS = {
@@ -107,7 +107,7 @@ def rank(prompt, rules, min_score=2.5, min_hits=2):
 
 def render():
     rules = load(RULES)
-    L = ["# Taste rules (user-approved)", "", "Generated from rules.json by taste.py; edit through `taste.py approve|retire`.", ""]
+    L = ["# House rules (user-approved)", "", "Generated from rules.json by house-rules.py; edit through `house-rules.py approve|retire`.", ""]
     for r in rules:
         mark = "" if r.get("status", "active") == "active" else f" ({r['status']})"
         L.append(f"- **{r['id']}**{mark} [{', '.join(r.get('tags', []))}] {r['rule']}  \n  evidence: "
@@ -170,7 +170,7 @@ def recall(prompt, rules=None, use_jev=True):
     ui = is_ui(p)
     hits = [r for r in hits if ui or not set(r.get("tags", [])) <= {"layout", "colour", "type", "motion", "copy", "a11y", "ui"}]
     if hits and use_jev:  # BM25 alone fires on loose word overlap; Jev confirms every hit (only ~10% of prompts get here)
-        probs = jev_probs("taste-recall", "Should an assistant apply this standing user preference while doing the request?",
+        probs = jev_probs("house-rules-recall", "Should an assistant apply this standing user preference while doing the request?",
                           [r["rule"] for r in hits[:8]], "Request: " + redact(p[:1500]))
         if probs is not None:
             hits = [r for r, pr in sorted(zip(hits, probs), key=lambda x: -x[1]) if pr >= 0.7]
@@ -186,4 +186,4 @@ def recall(prompt, rules=None, use_jev=True):
 
 
 def note(rules):
-    return "Taste (user-approved, apply if relevant):\n" + "\n".join(f"- {r['rule']}" for r in rules)
+    return "House rules (user-approved, apply if relevant):\n" + "\n".join(f"- {r['rule']}" for r in rules)

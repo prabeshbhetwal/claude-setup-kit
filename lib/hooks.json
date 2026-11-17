@@ -146,9 +146,9 @@
       {
         "event": "UserPromptSubmit",
         "type": "command",
-        "command": "python3 \"$HOME/.claude/hooks/taste-recall.py\"",
+        "command": "python3 \"$HOME/.claude/hooks/house-rules-recall.py\"",
         "timeout": 5,
-        "match": "taste-recall.py"
+        "match": "house-rules-recall.py"
       }
     ]
   },

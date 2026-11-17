@@ -3,7 +3,7 @@
   setup-monitor.py collect [--weeks N]   # scan transcripts, git, RTK, context-mode, Jev; write weeks/<YYYY-Www>.json
   setup-monitor.py report [--week W]     # weekly report (default: last finished week) -> reports/week-<W>.md
   setup-monitor.py trend                 # every stored week side by side -> reports/trend-<date>.md
-  setup-monitor.py weekly [--notify]     # what launchd runs on Mondays: collect 2 weeks, report, trend, taste mine
+  setup-monitor.py weekly [--notify]     # what launchd runs on Mondays: collect 2 weeks, report, trend, house-rules mine
   setup-monitor.py note "text"           # log a setup change, shown against the week it happened in
   setup-monitor.py selftest
 Data lives in ~/.claude/monitor (SETUP_MONITOR_HOME). Design: docs/setup-monitor-design.md in claude-setup-kit.
@@ -101,10 +101,10 @@ def main(argv):
         collect(2)
         p, t = report(), trend()
         try:
-            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.realpath(__file__)), "taste.py"), "mine", "--days", "8"],
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.realpath(__file__)), "house-rules.py"), "mine", "--days", "8"],
                            timeout=900)
         except Exception as e:
-            print("taste mine failed:", e)
+            print("house-rules mine failed:", e)
         print(p, t)
         if "--notify" in argv and p:
             notify(M.headline(last_finished(), stored()))

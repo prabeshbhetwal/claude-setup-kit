@@ -441,9 +441,9 @@ fi
 if has measure; then
   for f in token-scorecard.py token-compare.py token-daily.py token-report.py token-tools.py token-ledger.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
   mkdir -p "$CL/cache/token-compare/reports" "$CL/monitor/bin"
-  # Setup monitor (weekly scorecard) and taste memory: docs/setup-monitor-design.md
+  # Setup monitor (weekly scorecard) and house rules: docs/setup-monitor-design.md
   for f in "$KIT"/files/monitor/*.py; do copy_file "$f" "$CL/monitor/bin/$(basename "$f")" exec replace; done
-  copy_file "$KIT/files/hooks/taste-recall.py" "$CL/hooks/taste-recall.py" exec replace
+  copy_file "$KIT/files/hooks/house-rules-recall.py" "$CL/hooks/house-rules-recall.py" exec replace
   [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
   # Freeze the 30 days before install now, while those transcripts still exist (Claude Code prunes old ones).
   [ -f "$CL/cache/token-compare/before-week.json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (30 days before install)"; }
@@ -495,7 +495,7 @@ PLIST
     mv "$PL.tmp" "$PL"
     if [ "$HOME" = "$(eval echo "~$(id -un)")" ]; then
       launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
-      launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "setup monitor scheduled (Mondays 08:15: scorecard, trend, taste candidates)" || fail "launchctl bootstrap $PL"
+      launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "setup monitor scheduled (Mondays 08:15: scorecard, trend, house-rule candidates)" || fail "launchctl bootstrap $PL"
     else info "test HOME: setup monitor job written to $PL, not loaded"; fi
   fi
   fi
