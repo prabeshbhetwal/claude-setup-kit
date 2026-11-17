@@ -7,6 +7,7 @@ import { appendLog, isRoutableAgent, judge } from './engine'
 import { runEval } from './evalrun'
 import { agentTier, HANDOFF_PROMPT, spawnNote, tierOf } from './policy'
 import { begin, CACHE_TTL_MS, chainOf, finish, isPrivateHere, noteSwitch, prestart, record, settle, turnOf, warmNow } from './route'
+import { bandText } from './band'
 import { costText, HELP, statusText } from './status'
 import type { Options } from './route'
 import type { PilotFlags, PilotView } from '../types'
@@ -203,45 +204,32 @@ export const register: Register = (on, options) => {
     const f = await read($, flags)
     const v = await read($, view)
     const { Box, Button, Text } = $.ui.resolve(e)
-    const toggle = (
-      <Button key="power" plain label={f.isOn ? 'turn off' : 'turn on'} onPress={async () => {
-        await update($, flags, x => ({ ...x, isOn: !x.isOn }))
-        await $.store.set('isOn', !f.isOn)
-      }} />
-    )
-    if (!f.isOn) {
-      return (
-        <Box>
-          <Text dimColor>pilot off: the menu's model runs </Text>
-          {toggle}
-        </Box>
-      )
-    }
-    const isPinned = f.isModelPinned || f.isEffortPinned
+    const t = bandText(f, v, o.isShadow)
+    const isPinned = f.isOn && (f.isModelPinned || f.isEffortPinned)
+    const handoff = f.isOn && v !== null ? v.handoffTokens : null
     return (
-      <Box>
-        {v === null && <Text dimColor>pilot on: picks a model per prompt </Text>}
-        {v !== null && !v.isMismatch && (
-          <Text dimColor>
-            {v.isShadow ? 'pilot (shadow, nothing changed) would pick' : 'pilot:'} {v.pickedTier ?? 'menu model'} · effort {v.requestedEffort ?? 'menu'} (requested) → ran {v.ranModel ?? 'unknown'}{v.ranFrom === 'api' ? ' (per API)' : ''}{v.judge ? ` · judge ${v.judge}` : ''}{' '}
-          </Text>
-        )}
-        {v !== null && v.isMismatch && (
-          <Text color="warning">
-            pilot picked {v.pickedTier ?? 'menu model'} but {v.ranModel ?? 'an unknown model'} ran{' '}
-          </Text>
-        )}
-        {v !== null && v.tip !== null && <Text dimColor>· tip: {v.tip} </Text>}
-        {isPinned && <Text dimColor>· {f.isModelPinned ? 'model' : 'effort'}{f.isModelPinned && f.isEffortPinned ? ' and effort' : ''} set by you </Text>}
-        {isPinned && <Button key="auto" plain label="auto" onPress={() => update($, flags, x => ({ ...x, isModelPinned: false, isEffortPinned: false }))} />}
-        {v !== null && v.handoffTokens !== null && (
-          <Button key="handoff" label={`context ${Math.round(v.handoffTokens / 1000)}k: write handoff`} onPress={async () => {
-            await update($, view, x => (x ? { ...x, handoffTokens: null } : x))
-            await $.prompt.submit({ text: HANDOFF_PROMPT, asUser: true })
-          }} />
-        )}
-        <Text dimColor> </Text>
-        {toggle}
+      <Box flexDirection="column">
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+          <Box flexDirection="row" gap={1} flexShrink={1}>
+            <Text weight="semibold">Model pilot</Text>
+            {t.mode !== null && <Text dimColor>· {t.mode}</Text>}
+          </Box>
+          <Box flexDirection="row" gap={1}>
+            {handoff !== null && (
+              <Button key="handoff" label={`Write handoff (${Math.round(handoff / 1000)}k)`} onPress={async () => {
+                await update($, view, x => (x ? { ...x, handoffTokens: null } : x))
+                await $.prompt.submit({ text: HANDOFF_PROMPT, asUser: true })
+              }} />
+            )}
+            {isPinned && <Button key="auto" plain label="Hand back" onPress={() => update($, flags, x => ({ ...x, isModelPinned: false, isEffortPinned: false }))} />}
+            <Button key="power" plain label={f.isOn ? 'Turn off' : 'Turn on'} onPress={async () => {
+              await update($, flags, x => ({ ...x, isOn: !x.isOn }))
+              await $.store.set('isOn', !f.isOn)
+            }} />
+          </Box>
+        </Box>
+        <Text dimColor={!t.isWarning} color={t.isWarning ? 'warning' : undefined} wrap="truncate-end">{t.line}</Text>
+        {t.tip !== null && <Text dimColor italic wrap="truncate-end">Tip: {t.tip}</Text>}
       </Box>
     )
   })
