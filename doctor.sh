@@ -106,14 +106,9 @@ if has cognee; then
   plugin_on cognee-memory@cognee
   hook_env=$(python3 -c "import json;print(json.load(open('$S')).get('env',{}).get('COGNEE_BACKEND',''))")
   [ "$hook_env" = local ] && pass "COGNEE_BACKEND=local" || fail "COGNEE_BACKEND is not local in settings.json env"
-  grep -q '^LLM_API_KEY=.' "$HOME/.cognee/.env" 2>/dev/null && pass "Cognee LLM_API_KEY set" || warn "Cognee: no LLM_API_KEY in ~/.cognee/.env yet"
+  grep -q '^LLM_API_KEY=.' "$HOME/.cognee/.env" 2>/dev/null && pass "Cognee LLM_API_KEY set" || pass "Cognee: no LLM_API_KEY, so it runs on your Claude plan (counts towards its usage limits)"
   code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8011/health)
   [ "$code" = 200 ] && pass "Cognee server answers on :8011 (any Cognee server on this Mac counts)" || warn "Cognee server not answering on :8011 (starts with the first Claude session after the key is set)"
-fi
-if has agentmemory; then
-  plugin_on agentmemory@agentmemory
-  code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://localhost:3111/agentmemory/livez)
-  [ "$code" = 200 ] && pass "agentmemory server answers" || warn "agentmemory server not running (npx -y @agentmemory/agentmemory@latest)"
 fi
 has remember && plugin_on remember@claude-plugins-official
 
@@ -145,6 +140,12 @@ if has mjudge; then
   { [ -n "${GEMINI_API_KEY:-}" ] || grep -q '^GEMINI_API_KEY=.' "$HOME/.config/watch/.env" 2>/dev/null; } && pass "GEMINI_API_KEY found" || warn "no GEMINI_API_KEY yet"
 fi
 
+if has model-badge; then
+  plugin_on "model-badge@claude-setup-kit"
+fi
+if has grill-me; then
+  for s in grill-me grilling grill-with-docs; do [ -f "$CL/skills/$s/SKILL.md" ] && pass "skill $s" || fail "skill $s missing (re-run ./install.sh)"; done
+fi
 # deliberation
 if has deliberation; then
   plugin_on deliberation@antonbabenko

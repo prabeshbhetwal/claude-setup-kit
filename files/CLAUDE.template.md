@@ -16,6 +16,7 @@ Guides in `~/.claude/guides/`: read only on Router match, once per session unles
 <!-- /kit:supermemory -->
 - Hooks inject the token-stack rules (Caveman, i-have-adhd, Ponytail, context-mode, RTK, CodeGraph index check, whichever are installed) — follow them.
 - Everything else off by default; ask before enabling a new tool, connector or plugin.
+- Every installed tool has a trigger in this file. The monthly token report lists tools with no sign of use that month: candidates to remove.
 
 ## Token Stack
 - Invoke a tool whenever its trigger fits; never because a session started. A coding task start IS a trigger (coding set runs whole task).
@@ -54,6 +55,15 @@ Guides in `~/.claude/guides/`: read only on Router match, once per session unles
 <!-- kit:ponytail -->
 | Ponytail | Every build/design choice | Need it? → in repo? → stdlib → native platform → installed dep → minimal code; root-cause fixes | Never drop validation, security, data-loss handling, a11y |
 <!-- /kit:ponytail -->
+<!-- kit:grill-me -->
+| Grill Me | New feature, plan or design before any code; vague brief; "grill me" | Suggest `/grill-me` (`/grill-with-docs` to record decisions and terms): Claude asks me one hard question at a time about my own project | Small fixes, clear specs |
+<!-- /kit:grill-me -->
+<!-- kit:model-pilot -->
+| Model pilot | Every prompt (mod) | It sets this chat's model + effort and offers the fresh chat; leave both to it. `/pilot status`, `/pilot cost` | I named a model |
+<!-- /kit:model-pilot -->
+<!-- kit:model-badge -->
+| Model badge | Every helper agent (mod) | Label shows the model a helper ran on; mismatch with the model passed → say so | — |
+<!-- /kit:model-badge -->
 
 ## Memory
 - Before re-deriving, re-searching or asking me, check memory in this order: injected recall → the memory tools installed below → auto-memory `MEMORY.md`.
@@ -61,11 +71,8 @@ Guides in `~/.claude/guides/`: read only on Router match, once per session unles
 - Supermemory: save durable decisions, fixes, preferences, setup changes.
 <!-- /kit:supermemory -->
 <!-- kit:cognee -->
-- Cognee runs LOCAL (`COGNEE_BACKEND=local`, server `localhost:8011`). Its graph is built by the LLM in `~/.cognee/.env` (`LLM_API_KEY`), billed to that API account, not my Claude plan. Graph memory for relational / cross-project recall (`cognee-remember`, `cognee-search`). Never switch to cloud without asking.
+- Cognee runs LOCAL (`COGNEE_BACKEND=local`, server `localhost:8011`). Its graph is built by the LLM in `~/.cognee/.env` (`LLM_API_KEY`, billed per use on that account) or, with no key, through the `claude` command on my Claude plan (counts towards its usage limits). Graph memory for relational / cross-project recall (`cognee-remember`, `cognee-search`). Never switch to cloud without asking.
 <!-- /kit:cognee -->
-<!-- kit:agentmemory -->
-- agentmemory (`memory_smart_search`, `memory_save`): agent session memory; recall prior work before redoing it.
-<!-- /kit:agentmemory -->
 <!-- kit:remember -->
 - remember plugin: session history in `.remember/`; search it when a question reaches past the injected summary.
 <!-- /kit:remember -->
@@ -78,6 +85,7 @@ Guides in `~/.claude/guides/`: read only on Router match, once per session unles
 | Chat / research | Memory first → docs or web |
 | Code repo / coding task | Whole task, from step one: memory + token stack + CodeGraph and/or Graphify. Project `CLAUDE.md` first (missing → bootstrap, see `knowledge-and-projects.md`) |
 | Architecture / specs | Graphify → CodeGraph for symbols it names |
+| Plan / design, before code | Grill Me first (questions me about my project) → Deliberation for one-way, high-stakes calls (other models judge the plan) |
 | Heavy output / long session | context-mode; suggest `/compact` at milestones, `/clear` between unrelated tasks |
 
 ## Router

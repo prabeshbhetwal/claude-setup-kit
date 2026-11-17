@@ -23,8 +23,9 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
    - Bounded task → helper agent with explicit `model` (`opus`/`fable`) + `effort`. Router keeps named models.
    - Long autonomous Fable/Opus job → `/pick-model handoff` (new chat one model up). Sessions can't start above parent model.
 4. Bad result ladder: fix prompt (`/rewind`) → raise effort one level → move up one model at lower effort (Opus high fails → Fable medium).
-5. Never switch main model mid-chat (cache loss, lost thinking) → handoff instead.
+5. Never switch main model mid-chat yourself (cache loss, lost thinking) → handoff instead.
 6. **Handoff rule:** context above ~250k, or task finished → hand off to a fresh chat (`/handoff`) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour.
+7. **Model pilot on (not shadow) replaces rules 5 and 6:** it picks this chat's model + effort per prompt and offers a fresh chat at the size the user chose (`/pilot status`). One owner per decision: don't apply the 250k rule on top of it.
 
 ## Start-up cost (measured on the author's setup, 2026-11-15; yours depends on installed plugins and MCP servers)
 | Helper | Tokens before work |

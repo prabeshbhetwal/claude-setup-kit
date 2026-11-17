@@ -65,10 +65,11 @@ function Describe($id, $n) {
 }
 $TierTitle = @{
   core = 'CORE: the token savers and safety net. Free: no keys, no accounts. Recommended for everyone.'
-  memory = 'MEMORY: Claude remembers past chats and decisions. Some need a free account or a paid API key.'
+  keys = 'FIRST, THE TOOLS THAT NEED AN API KEY OR AN ACCOUNT. Each one says which key and what it costs; you add the keys after the install, which lists where each goes. Tick the ones you want.'
+  memory = 'MEMORY: Claude remembers past chats and decisions. No key needed here (Supermemory, which needs an account, was in the first group).'
   routing = 'MODEL ROUTING: uses cheaper models where they do the job just as well. Free.'
   judge = 'JUDGE TOOLS: fast outside yes/no checks over long lists and media. Need API keys (one paid, one with a free tier).'
-  deliberation = 'SECOND OPINIONS: ask GPT, Gemini, Grok or OpenRouter from inside Claude. Needs at least one of those accounts.'
+  deliberation = 'PLAN CHECKS: test a plan before you build it. Free (Deliberation, which needs other AI accounts, was in the first group).'
 }
 
 # ---------------------------------------------------------------- selection (nothing changes until preflight passes)
@@ -83,12 +84,18 @@ if ($Only) {
 } else {
   Write-Host "claude-setup-kit: each tool is explained below; you choose what to install."
   Write-Host "Nothing is changed until all questions are answered."
-  foreach ($t in $TIERS_ALL) {
+  # Tools that need an API key or an account: asked about first, in one group, so nobody is surprised by a key later.
+  $KeyIds = @('supermemory', 'jev', 'mjudge', 'deliberation')
+  foreach ($t in @('keys') + $TIERS_ALL) {
+    $ids = if ($t -eq 'keys') { $KeyIds } else { @(TierIds $t | Where-Object { $KeyIds -notcontains $_ }) }
+    if (-not $ids) { continue }
     Write-Host ""; Write-Host "=== $($TierTitle[$t])"
-    $ids = @(TierIds $t); for ($i = 0; $i -lt $ids.Count; $i++) { Describe $ids[$i] ($i + 1) }
-    # Checkbox menu: [x]/[ ] per tool, toggle by number until Enter. Core starts ticked.
+    for ($i = 0; $i -lt $ids.Count; $i++) { Describe $ids[$i] ($i + 1) }
+    # Checkbox menu: [x]/[ ] per tool, toggle by number until Enter. Core starts ticked, plus Supermemory and remember.
     $on = New-Object System.Collections.Generic.HashSet[string]
     if ($t -eq 'core') { foreach ($id in $ids) { [void]$on.Add($id) } }
+    if ($t -eq 'keys') { [void]$on.Add('supermemory') }
+    if ($t -eq 'memory') { [void]$on.Add('remember') }
     while ($true) {
       Write-Host ""
       for ($i = 0; $i -lt $ids.Count; $i++) { $m = if ($on.Contains($ids[$i])) { 'x' } else { ' ' }; Write-Host "  [$m] $($i + 1). $((Item $ids[$i]).Name)" }
@@ -104,8 +111,9 @@ if ($Only) {
     foreach ($id in $ids) { if ($on.Contains($id)) { Add $id } }
   }
 }
-# Model pilot reads the session transcript with /bin/sh and tail: macOS only.
+# Model pilot reads the session transcript with /bin/sh and tail: macOS only. Model badge is untested on Windows.
 if (Has 'model-pilot') { Drop 'model-pilot'; Info 'Model pilot is macOS only: left out on Windows' }
+if (Has 'model-badge') { Drop 'model-badge'; Info 'Model badge is macOS only for now: left out on Windows' }
 # Skips first: a skipped tool also removes whatever needs it, so dependencies never pull it back in.
 $skipList = New-Object System.Collections.Generic.List[string]
 foreach ($id in (Split-Ids $Skip)) { if (-not (Item $id)) { Write-Host "Unknown tool in -Skip: $id (see -List)"; exit 2 }; $skipList.Add($id) }
@@ -163,7 +171,7 @@ $Fixes = [ordered]@{
   python = @('Python 3', 'runs every script in this kit', 'winget install -e --id Python.Python.3.12 --override "/quiet PrependPath=1"')
   git    = @('Git for Windows', 'gives Git Bash, the shell the kit''s hooks run in', 'winget install -e --id Git.Git')
   claude = @('Claude Code command-line tool', 'lets this installer add plugins for you', 'irm https://claude.ai/install.ps1 | iex')
-  node   = @('Node.js', 'runs context-mode, CodeGraph and agentmemory', 'winget install -e --id OpenJS.NodeJS.LTS')
+  node   = @('Node.js', 'runs context-mode and CodeGraph, and fetches Grill Me', 'winget install -e --id OpenJS.NodeJS.LTS')
   uv     = @('uv', 'installs Graphify (a Python tool) in its own space', 'winget install -e --id astral-sh.uv')
 }
 function Find-Prereqs {
@@ -174,12 +182,12 @@ function Find-Prereqs {
   foreach ($p in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", $env:CLAUDE_CODE_GIT_BASH_PATH)) {
     if ($p -and (Test-Path $p)) { $script:GitBash = $p; break }
   }
-  $pluginIds = @('caveman', 'adhd', 'ponytail', 'context-mode', 'codegraph', 'supermemory', 'cognee', 'agentmemory', 'remember', 'deliberation')
+  $pluginIds = @('caveman', 'adhd', 'ponytail', 'context-mode', 'codegraph', 'supermemory', 'cognee', 'remember', 'deliberation')
   $lack = @()
   if (-not $script:PY) { $lack += 'python' }
   if (-not $script:GitBash -or -not (Cmd 'git')) { $lack += 'git' }
   if (($pluginIds | Where-Object { Has $_ }) -and -not (Cmd 'claude')) { $lack += 'claude' }
-  if ((@('context-mode', 'codegraph', 'agentmemory') | Where-Object { Has $_ }) -and -not (Cmd 'node')) { $lack += 'node' }
+  if ((@('context-mode', 'codegraph', 'grill-me') | Where-Object { Has $_ }) -and -not (Cmd 'node')) { $lack += 'node' }
   if ((Has 'graphify') -and -not ((Cmd 'uv') -or (Cmd 'pipx'))) { $lack += 'uv' }
   return , $lack
 }
@@ -342,8 +350,7 @@ if (Has 'measure') {
 
 # ---------------------------------------------------------------- memory
 if (Has 'supermemory') { if (Plugin 'supermemoryai/claude-supermemory' 'supermemory-plugins' 'supermemory') { Todo 'Supermemory: start Claude Code and complete the Supermemory sign-in it opens (or set SUPERMEMORY_CC_API_KEY, see .env.example).' } }
-if (Has 'cognee') { if (Plugin 'topoteretes/cognee-integrations' 'cognee' 'cognee-memory') { Todo 'Cognee: put LLM_PROVIDER, LLM_MODEL and LLM_API_KEY in ~\.cognee\.env (see .env.example). It builds its local server on the first session; that takes a few minutes.' } }
-if (Has 'agentmemory') { if (Plugin 'rohitg00/agentmemory' 'agentmemory' 'agentmemory') { Todo 'agentmemory: start its server in a separate window: npx -y @agentmemory/agentmemory@latest (keep it running).' } }
+if (Has 'cognee') { if (Plugin 'topoteretes/cognee-integrations' 'cognee' 'cognee-memory') { Todo 'Cognee builds its local server on the first session (a few minutes; needs Python 3.10+). Pick how it pays for the AI that builds its map: (a) your Claude plan: do nothing, it uses the claude command and counts towards your plan''s usage limits; or (b) your own API key: put LLM_PROVIDER, LLM_MODEL and LLM_API_KEY in ~\.cognee\.env (see .env.example), billed per use, so set a spend limit. Codex can share the same memory: see github.com/topoteretes/cognee-integrations.' } }
 if (Has 'remember') { [void](Plugin 'anthropics/claude-plugins-official' 'claude-plugins-official' 'remember') }
 
 # ---------------------------------------------------------------- routing
@@ -365,6 +372,15 @@ if (Has 'mjudge') {
   Todo 'mjudge: put GEMINI_API_KEY=... in ~\.config\watch\.env, or set it as a user environment variable. On Windows the Jev second opinion on images is skipped (it needs macOS sips); Gemini still answers.'
 }
 
+# ---------------------------------------------------------------- Grill Me (fetched from the author's repo, never copied into this kit)
+if (Has 'grill-me') {
+  if ((Test-Path "$CL\skills\grill-me") -and (Test-Path "$CL\skills\grilling") -and (Test-Path "$CL\skills\grill-with-docs")) { Ok 'Grill Me already installed' }
+  else {
+    Push-Location $CL; & npx --yes skills add mattpocock/skills -g -a claude-code -s grill-me -s grilling -s grill-with-docs -y *> $null; $rc = $LASTEXITCODE; Pop-Location
+    if ($rc -eq 0) { Ok 'Grill Me (grill-me, grilling, grill-with-docs from mattpocock/skills)' } else { Fail 'Grill Me (run: npx skills add mattpocock/skills -g -a claude-code -s grill-me -s grilling -s grill-with-docs)' }
+  }
+  Todo 'Grill Me: type /grill-me before you build something; /grill-with-docs also writes down decisions and terms.'
+}
 # ---------------------------------------------------------------- deliberation
 if (Has 'deliberation') {
   if (Plugin 'antonbabenko/agent-plugins' 'antonbabenko' 'deliberation') {

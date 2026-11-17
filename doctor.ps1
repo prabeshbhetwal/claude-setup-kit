@@ -85,10 +85,6 @@ if (Has 'cognee') {
   if ($St.env.COGNEE_BACKEND -eq 'local') { Pass 'COGNEE_BACKEND=local' } else { Fail 'COGNEE_BACKEND is not local in settings.json env' }
   if ((Test-Path "$H\.cognee\.env") -and (Select-String -Path "$H\.cognee\.env" -Pattern '^LLM_API_KEY=.' -Quiet)) { Pass 'Cognee LLM_API_KEY set' } else { Warn 'Cognee: no LLM_API_KEY in ~\.cognee\.env yet' }
 }
-if (Has 'agentmemory') {
-  Plugin-On 'agentmemory@agentmemory'
-  try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:3111/agentmemory/livez | Out-Null; Pass 'agentmemory server answers' } catch { Warn 'agentmemory server not running (npx -y @agentmemory/agentmemory@latest)' }
-}
 if (Has 'remember') { Plugin-On 'remember@claude-plugins-official' }
 if (Has 'routing') {
   if ($GitBash -and ((& $GitBash "$CL/hooks/routing-card.sh" 2>$null | Out-String) -match 'MODEL ROUTING ACTIVE')) { Pass 'routing card prints' } else { Fail 'routing-card.sh does not print the card' }
@@ -102,6 +98,9 @@ if (Has 'jev') {
 if (Has 'mjudge') {
   if (Test-Path "$BIN\mjudge.cmd") { Pass 'mjudge' } else { Fail 'mjudge missing' }
   if ($env:GEMINI_API_KEY -or [Environment]::GetEnvironmentVariable('GEMINI_API_KEY', 'User') -or ((Test-Path "$H\.config\watch\.env") -and (Select-String -Path "$H\.config\watch\.env" -Pattern '^GEMINI_API_KEY=.' -Quiet))) { Pass 'GEMINI_API_KEY found' } else { Warn 'no GEMINI_API_KEY yet' }
+}
+if (Has 'grill-me') {
+  foreach ($s in @('grill-me', 'grilling', 'grill-with-docs')) { if (Test-Path "$CL\skills\$s\SKILL.md") { Pass "skill $s" } else { Fail "skill $s missing (re-run .\install.ps1)" } }
 }
 if (Has 'deliberation') {
   Plugin-On 'deliberation@antonbabenko'

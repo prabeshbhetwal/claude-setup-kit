@@ -14,6 +14,9 @@
   CodeGraph, Graphify - calls found in the transcripts and the size of what they returned. No saving is estimated:
                  nothing records what the searches and file reads they replaced would have cost.
 None of these is added to the report's totals: RTK and context-mode both trim shell output.
+Unused tools: installed on-demand tools (~/.claude/kit/installed) with no sign of use in the month: no tool call,
+                 slash command or log line of theirs. Tools that run by hook on every session (Caveman, i-have-adhd,
+                 Ponytail, Supermemory, Cognee, remember, the routing card, safe delete) are not judged this way.
 """
 import glob
 import importlib.machinery
@@ -142,6 +145,48 @@ def model_pilot(start, end, path=None):
     return n, lower, saved
 
 
+# Substrings that mark a tool's use in a transcript line holding a tool call or a slash command.
+SIGNS = {"jev": ('jev noul', 'jev choice', 'jev score', 'jev-gate'), "mjudge": ('mjudge ',),
+         "deliberation": ('deliberation__', '<command-name>/deliberation'),
+         "grill-me": ('"skill":"grill', '<command-name>/grill'), "model-badge": ('"name":"Agent"',),
+         "context-mode": ('ctx_execute', 'ctx_batch_execute', 'ctx_search', 'ctx_fetch_and_index')}
+
+
+def signs(start, end, root=None):
+    """Ids from SIGNS with at least one sign of use in the month's transcripts."""
+    found, root = set(), root or TC.P
+    for f in glob.glob(root + "/*/*.jsonl") + glob.glob(root + "/*/*/subagents/*.jsonl"):
+        if os.path.getmtime(f) < start.timestamp() or len(found) == len(SIGNS):
+            continue
+        for line in open(f, errors="ignore"):
+            if '"tool_use"' not in line and '<command-name>' not in line:
+                continue
+            hit = [k for k, v in SIGNS.items() if k not in found and any(x in line for x in v)]
+            if not hit:
+                continue
+            try:
+                t = datetime.fromisoformat(json.loads(line)["timestamp"].replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+            except Exception:
+                continue
+            if start <= t < end:
+                found.update(hit)
+    return found
+
+
+def unused(installed, tools, rtk, used):
+    """Installed on-demand tools with no sign of use: [ids]. used = signs(); tools = collect(); rtk = RTK's saving or None."""
+    seen = set(used)
+    seen |= {k for k in ("codegraph", "graphify") if tools[k][0]}
+    if tools.get("context-mode"):
+        seen.add("context-mode")
+    if tools.get("model-pilot") and tools["model-pilot"][0]:
+        seen.add("model-pilot")
+    if rtk:
+        seen.add("rtk")
+    judged = set(SIGNS) | {"codegraph", "graphify", "model-pilot", "rtk"}
+    return sorted(i for i in installed if i in judged and i not in seen)
+
+
 def fb(x):
     return f"{x / 1e6:.1f} MB" if x >= 1e6 else f"{x / 1e3:.1f} KB"
 
@@ -210,6 +255,19 @@ def selftest():
     assert "| model-pilot | 3 model decisions, 1 ran below the menu model" in text and "~$0.40" in text, text
     assert "no model-pilot log found" in "\n".join(lines({**tools, "model-pilot": None}))
     assert "~1.5k tokens" in text and "| Graphify | 1 reads of graphify-out, 0.0 KB returned" in text, text
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "x"))
+        rows = [json.dumps({"timestamp": "2026-12-05T02:00:00Z", "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "grilling"}}]}}, separators=(",", ":")),
+                json.dumps({"timestamp": "2026-12-05T02:00:00Z", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "x | jev noul 'q'"}}]}}),
+                json.dumps({"timestamp": "2026-10-05T02:00:00Z", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "mjudge noul q f.png"}}]}}),
+                json.dumps({"timestamp": "2026-12-05T02:00:00Z", "message": {"content": "mjudge mentioned in prose only"}})]
+        open(os.path.join(d, "x", "s.jsonl"), "w").write("\n".join(rows) + "\n")
+        os.utime(os.path.join(d, "x", "s.jsonl"), (ms(6) / 1000,) * 2)
+        used = signs(start, end, d)
+        assert used == {"grill-me", "jev"}, used  # mjudge only last month or in prose: not counted
+    inst = ["caveman", "codegraph", "graphify", "grill-me", "jev", "mjudge", "deliberation", "rtk", "model-pilot", "supermemory"]
+    assert unused(inst, tools, 0, used) == ["deliberation", "mjudge", "rtk"], unused(inst, tools, 0, used)
+    assert unused(inst, {**tools, "codegraph": [0, 0]}, 5, used) == ["codegraph", "deliberation", "mjudge"]
     return tools
 
 

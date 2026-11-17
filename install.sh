@@ -71,10 +71,10 @@ ask() { # ask "question" default(y|n) -> 0 for yes
   return 1
 }
 
-# Checkbox menu for one tier: shows [x]/[ ] per tool, toggles by number until Enter.
-pick_tier() { # pick_tier TIER default(y|n)
-  local ids on=" " a w id i m
-  ids=$(echo $(tier_ids "$1")); [ "$2" = y ] && on=" $ids "  # echo collapses newlines to single spaces
+# Checkbox menu for one group: shows [x]/[ ] per tool, toggles by number until Enter.
+pick_ids() { # pick_ids "IDS" "IDS ticked at start"
+  local ids on a w id i m
+  ids=$1; on=" $2 "
   while :; do
     i=0; say ""
     for id in $ids; do
@@ -103,13 +103,17 @@ describe() { # describe ID [NUMBER]
   printf '    What:  %s\n    Helps: %s\n    Needs: %s\n' "$(field "$1" 5)" "$(field "$1" 6)" "$(field "$1" 7)"
 }
 
+# Tools that need an API key or an account: asked about first, in one group, so nobody is surprised by a key later.
+KEY_IDS="supermemory jev mjudge deliberation"
+is_key() { case " $KEY_IDS " in *" $1 "*) return 0 ;; esac; return 1; }
 tier_title() {
   case "$1" in
+    keys) echo "FIRST, THE TOOLS THAT NEED AN API KEY OR AN ACCOUNT. Each one says which key and what it costs; you add the keys after the install, which lists where each goes. Tick the ones you want." ;;
     core) echo "CORE: the token savers and safety net. Free: no keys, no accounts. Recommended for everyone." ;;
-    memory) echo "MEMORY: Claude remembers past chats and decisions. Some need a free account or a paid API key." ;;
+    memory) echo "MEMORY: Claude remembers past chats and decisions. No key needed here (Supermemory, which needs an account, was in the first group)." ;;
     routing) echo "MODEL ROUTING: uses cheaper models where they do the job just as well. Free." ;;
     judge) echo "JUDGE TOOLS: fast outside yes/no checks over long lists and media. Need API keys (one paid, one with a free tier)." ;;
-    deliberation) echo "SECOND OPINIONS: ask GPT, Gemini, Grok or OpenRouter from inside Claude. Needs at least one of those accounts." ;;
+    deliberation) echo "PLAN CHECKS: test a plan before you build it. Free (Deliberation, which needs other AI accounts, was in the first group)." ;;
   esac
 }
 
@@ -124,12 +128,15 @@ elif [ "$MODE" = yes ]; then
 else
   say "claude-setup-kit: each tool is explained below; you choose what to install."
   say "Nothing is changed until all questions are answered."
-  for t in $TIERS_ALL; do
+  for t in keys $TIERS_ALL; do
+    if [ "$t" = keys ]; then ids=$KEY_IDS
+    else ids=$(for id in $(tier_ids "$t"); do is_key "$id" || echo "$id"; done); fi
+    ids=$(echo $ids); [ -n "$ids" ] || continue  # a tier whose tools were all in the first group
     say ""; say "=== $(tier_title "$t")"
-    i=0; for id in $(tier_ids "$t"); do i=$((i + 1)); describe "$id" "$i"; done
-    d=n; [ "$t" = core ] && d=y
-    if { : </dev/tty; } 2>/dev/null; then pick_tier "$t" "$d"
-    elif [ "$d" = y ]; then for id in $(tier_ids "$t"); do add "$id"; done; fi
+    i=0; for id in $ids; do i=$((i + 1)); describe "$id" "$i"; done
+    case $t in core) d=$ids ;; keys) d="supermemory" ;; memory) d="remember" ;; *) d="" ;; esac  # ticked at start
+    if { : </dev/tty; } 2>/dev/null; then pick_ids "$ids" "$d"
+    else for id in $d; do add "$id"; done; fi
   done
 fi
 # Skips first: a skipped tool also removes whatever needs it, so dependencies never pull it back in.
@@ -185,6 +192,7 @@ if has measure; then
   ask "Schedule the monthly report?" y || { DO_SCHED=0; info "monthly report not scheduled (run it by hand: python3 ~/.claude/hooks/token-monthly.py)"; }
 fi
 if has model-pilot && [ "$(uname -s)" != Darwin ]; then drop model-pilot; info "Model pilot left out: it is macOS only"; fi
+if has model-badge && [ "$(uname -s)" != Darwin ]; then drop model-badge; info "Model badge left out: it is macOS only for now"; fi
 if has model-pilot; then
   # Two selectors would each pick a model for the same prompt. Only one can be on.
   OTHER=$(python3 -c 'import json,sys
@@ -239,8 +247,8 @@ CMD_BREW=${KIT_CMD_BREW:-'/bin/bash -c "$(curl -fsSL https://raw.githubuserconte
 CMD_CLAUDE=${KIT_CMD_CLAUDE:-"curl -fsSL https://claude.ai/install.sh | bash"}
 CMD_NODE=${KIT_CMD_NODE:-"brew install node"}
 CMD_UV=${KIT_CMD_UV:-"brew install uv"}
-uses_claude() { for id in caveman adhd ponytail context-mode codegraph supermemory cognee agentmemory remember model-pilot deliberation; do has $id && return 0; done; return 1; }
-uses_node() { has context-mode || has codegraph || has agentmemory; }
+uses_claude() { for id in caveman adhd ponytail context-mode codegraph supermemory cognee remember model-pilot model-badge deliberation; do has $id && return 0; done; return 1; }
+uses_node() { has context-mode || has codegraph || has grill-me; }
 check_prereqs() { # fills LACK with "key|name|why" lines, in install order
   LACK=""
   # /usr/bin/python3 and git exist on every Mac but are stubs until Apple's Command Line Tools are installed.
@@ -253,7 +261,7 @@ BREW|Homebrew|the standard free installer for Mac developer tools; used here to 
   uses_claude && ! command -v claude >/dev/null 2>&1 && LACK="$LACK
 CLAUDE|Claude Code command-line tool|lets this installer add plugins for you; the Claude app and the terminal share it"
   uses_node && ! command -v node >/dev/null 2>&1 && LACK="$LACK
-NODE|Node.js|runs context-mode, CodeGraph and agentmemory"
+NODE|Node.js|runs context-mode and CodeGraph, and fetches Grill Me"
   has graphify && ! command -v uv >/dev/null 2>&1 && ! command -v pipx >/dev/null 2>&1 && LACK="$LACK
 UV|uv|installs Graphify (a Python tool) in its own space, so it cannot clash with anything else"
   [ -z "$LACK" ]
@@ -445,11 +453,7 @@ if has supermemory; then
 fi
 if has cognee; then
   plugin topoteretes/cognee-integrations cognee cognee-memory &&
-    todo "Cognee: put LLM_PROVIDER, LLM_MODEL and LLM_API_KEY in ~/.cognee/.env (see .env.example). It builds its local server on the first session; that takes a few minutes."
-fi
-if has agentmemory; then
-  plugin rohitg00/agentmemory agentmemory agentmemory &&
-    todo "agentmemory: start its server in a separate terminal: npx -y @agentmemory/agentmemory@latest (keep it running)."
+    todo "Cognee builds its local server on the first session (a few minutes; needs Python 3.10+). Pick how it pays for the AI that builds its map: (a) your Claude plan: do nothing, it uses the claude command and counts towards your plan's usage limits; or (b) your own API key: put LLM_PROVIDER, LLM_MODEL and LLM_API_KEY in ~/.cognee/.env (see .env.example), billed per use, so set a spend limit. Codex can share the same memory: see github.com/topoteretes/cognee-integrations."
 fi
 has remember && plugin anthropics/claude-plugins-official claude-plugins-official remember
 
@@ -458,13 +462,19 @@ if has routing; then
   copy_file "$KIT/files/hooks/routing-card.sh" "$CL/hooks/routing-card.sh" exec replace
   for f in "$KIT"/files/agents/*.md; do copy_file "$f" "$CL/agents/$(basename "$f")" data keep; done
 fi
+if has model-pilot || has model-badge; then
+  # Copied, so this kit folder can be moved or removed later. Files are added or replaced, never removed.
+  dest="$CL/local-marketplaces/claude-setup-kit"; mkdir -p "$dest"
+  cp -R "$KIT/mods/." "$dest/" && ok "kit mods in $dest" || fail "copy $KIT/mods to $dest"
+fi
+if has model-badge; then
+  plugin "$dest" claude-setup-kit model-badge &&
+    todo "Model badge: in a new chat, start a helper agent; its row shows the model it ran on."
+fi
 if has model-pilot; then
   for p in $PILOT_OFF; do
     claude plugin disable "$p" >/dev/null 2>&1 && ok "switched off $p (to go back: claude plugin enable $p, and switch Model pilot off)" || fail "could not switch off $p (run: claude plugin disable $p)"
   done
-  # Copied, so this kit folder can be moved or removed later. Files are added or replaced, never removed.
-  dest="$CL/local-marketplaces/claude-setup-kit"; mkdir -p "$dest"
-  cp -R "$KIT/mods/." "$dest/" && ok "model pilot files in $dest" || fail "copy $KIT/mods to $dest"
   plugin "$dest" claude-setup-kit model-pilot
   if [ "$HANDOFF" != auto ]; then
     python3 - "$CL/settings.json" "$HANDOFF" "$TS" <<'PY' && ok "fresh-chat offer set to $HANDOFF" || fail "could not save the fresh-chat choice (set it in /config, under Model pilot)"
@@ -498,6 +508,14 @@ fi
 if has deliberation; then
   plugin antonbabenko/agent-plugins antonbabenko deliberation &&
     todo "Deliberation: set up at least one provider, then run /deliberation:setup in Claude Code. GPT: npm i -g @openai/codex && codex login. Grok: XAI_API_KEY. OpenRouter: OPENROUTER_API_KEY. Gemini: the agy CLI."
+fi
+
+if has grill-me; then
+  # Fetched from the author's repo, never copied into this kit. Skills already there are left as they are.
+  if [ -e "$CL/skills/grill-me" ] && [ -e "$CL/skills/grilling" ] && [ -e "$CL/skills/grill-with-docs" ]; then ok "Grill Me already installed"
+  elif (cd "$CL" && npx --yes skills add mattpocock/skills -g -a claude-code -s grill-me -s grilling -s grill-with-docs -y) >/dev/null 2>&1; then ok "Grill Me (grill-me, grilling, grill-with-docs from mattpocock/skills)"
+  else fail "Grill Me (run: npx skills add mattpocock/skills -g -a claude-code -s grill-me -s grilling -s grill-with-docs)"; fi
+  todo "Grill Me: type /grill-me before you build something; /grill-with-docs also writes down decisions and terms."
 fi
 
 # ---------------------------------------------------------------- settings.json (merge, never overwrite)

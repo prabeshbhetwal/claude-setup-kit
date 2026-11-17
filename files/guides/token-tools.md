@@ -30,10 +30,9 @@ Use each when first relevant, combine where useful; never invoke just because se
 | Tool | Use |
 |---|---|
 | Supermemory (plugin recall hook) | Auto-recall each prompt; search past decisions/"what did we decide"; save durable facts |
-| agentmemory (MCP) | Agent session memory: recall prior work before redoing |
 | remember plugin + auto-memory (`~/.claude/projects/*/memory/`) | Session history (`.remember/`) + one-fact-per-file memories with `MEMORY.md` index |
 | CodeGraph / Graphify indexes | Built once per repo, reused every session instead of re-reading codebase |
-- Graphify maps files (code, docs, PDFs, images), not chat history. Conversation context from Supermemory / agentmemory / remember, not Graphify.
+- Graphify maps files (code, docs, PDFs, images), not chat history. Conversation context from Supermemory / Cognee / remember, not Graphify.
 - Before searching codebase or web for something decided earlier, check memory first.
 
 ## Session hygiene
