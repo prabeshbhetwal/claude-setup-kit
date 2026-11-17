@@ -1,6 +1,7 @@
 // model-pilot policy: pure functions, no engine calls. Everything here is unit-tested.
 import { effortBelow, outPerStep } from './effort'
 import { rateOf } from './prices'
+import { steer } from './steer'
 
 export type Tier = 'haiku' | 'sonnet' | 'opus' | 'fable'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh'
@@ -14,6 +15,10 @@ export type Verdict = {
   effort: Effort
   confidence: number
   reason: string
+  /** Why a stronger model would help: it needs more knowledge, or only more care. */
+  gap?: 'knowledge' | 'care'
+  /** An automatic check (tests, a build, a verifier) shows whether the result is right. */
+  checkable?: boolean
 }
 
 export type JudgeInput = {
@@ -58,6 +63,8 @@ export type DecideInput = {
   /** How many turns in a row needed less than the tier they ran on. */
   lowerStreak: number
   canUpgrade: boolean
+  /** The person reports a failed check after a checkable turn ran at low effort. */
+  isRetry?: boolean
 }
 
 export type Decision = {
@@ -123,8 +130,12 @@ export function decide(i: DecideInput): Decision {
     reason = `${reason} (over 100k tokens: haiku raised to sonnet)`
   }
 
+  // More care before a bigger model; checkable work at low effort first (steer.ts).
+  const s = steer(v, required, i.menuTier, i.source === 'judge', i.isRetry === true)
+  if (s.stayOn && !i.explicit.tier && !i.isModelPinned) required = s.stayOn
+  if (s.note) reason = `${reason} (${s.note})`
   // Haiku at low skips searches on long prompts (Anthropic): the pilot asks it for medium at least.
-  const judged: Effort = required === 'haiku' && v.effort === 'low' ? 'medium' : v.effort
+  const judged: Effort = required === 'haiku' && s.effort === 'low' ? 'medium' : s.effort
   const effort: Effort | 'max' | undefined =
     i.explicit.effort ?? (i.isEffortPinned ? undefined : judged)
 

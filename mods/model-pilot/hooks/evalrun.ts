@@ -11,7 +11,7 @@ import type { JudgeInput, Tier, Verdict } from './policy'
 const HARD_STOP_MS = 8000
 
 export type Case = { id: string; prompt: string; recent?: string; context_tokens?: number; kind?: 'prompt' | 'agent'; tier: Tier; effort: string }
-export type Outcome = { id: string; by: string; label: Tier; picked: Tier; effort: string; labelEffort: string; source: string; ms: number; confidence: number; reason: string }
+export type Outcome = { id: string; by: string; label: Tier; picked: Tier; effort: string; labelEffort: string; source: string; ms: number; confidence: number; reason: string; gap?: string; checkable?: boolean }
 
 const requiredOf = (verdict: Verdict, source: 'judge' | 'rules', contextTokens: number): Tier =>
   // A neutral session: menu on haiku, nothing cached, so the required tier is what runs.
@@ -57,7 +57,7 @@ export async function runEval($: EngineInterface, path: string, model: string): 
     for (let c = queue.shift(); c; c = queue.shift()) {
       const input: JudgeInput = { prompt: c.prompt, recent: c.recent ?? '', contextTokens: c.context_tokens ?? 30_000, currentTier: 'sonnet', kind: c.kind ?? 'prompt' }
       const j: Judged = isRulesOnly ? { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: 0 } : await judge($, input, { isPrivate: false, budgetMs: HARD_STOP_MS, model, chain })
-      rows.push({ id: c.id, by: j.by, label: c.tier, picked: requiredOf(j.verdict, j.source, input.contextTokens), effort: j.verdict.effort, labelEffort: c.effort, source: j.source, ms: j.ms, confidence: j.verdict.confidence, reason: j.fail ? `${j.verdict.reason} [${j.fail}]` : j.verdict.reason })
+      rows.push({ id: c.id, by: j.by, label: c.tier, picked: requiredOf(j.verdict, j.source, input.contextTokens), effort: j.verdict.effort, labelEffort: c.effort, source: j.source, ms: j.ms, confidence: j.verdict.confidence, gap: j.verdict.gap, checkable: j.verdict.checkable, reason: j.fail ? `${j.verdict.reason} [${j.fail}]` : j.verdict.reason })
     }
   }
   // Two at a time: close to how prompts arrive, without queueing behind each other.

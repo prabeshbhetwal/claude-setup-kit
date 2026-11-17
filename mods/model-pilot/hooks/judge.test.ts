@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { explicitChoice, isFollowUp, judgePrompt, parseJudgeReply, rulesVerdict } from './judge'
+import { explicitChoice, isFollowUp, judgePrompt, parseJudgeReply, rulesVerdict, floorCoding } from './judge'
 import type { JudgeInput } from './policy'
 
 const input = (prompt: string, kind: 'prompt' | 'agent' = 'prompt'): JudgeInput => ({ prompt, recent: '', contextTokens: 30_000, currentTier: 'sonnet', kind })
@@ -19,7 +19,7 @@ test('parses a verdict wrapped in prose or a code fence', async () => {
 test('repairs what it safely can: max effort, missing effort, wild confidence', async () => {
   expect(parseJudgeReply('{"tier":"opus","effort":"max"}')?.effort).toBe('xhigh')
   expect(parseJudgeReply('{"tier":"haiku"}')?.effort).toBe('low')
-  expect(parseJudgeReply('{"tier":"opus","effort":"banana"}')?.effort).toBe('high')
+  expect(parseJudgeReply('{"tier":"opus","effort":"banana"}')?.effort).toBe('medium')
   expect(parseJudgeReply('{"tier":"sonnet","confidence":7}')?.confidence).toBe(1)
   expect(parseJudgeReply('{"tier":"sonnet","confidence":"high"}')?.confidence).toBe(0.5)
 })
@@ -107,4 +107,12 @@ test('words that only look like a model choice are left alone', async () => {
     'it took a lot of effort',
     'make a best effort guess',
   ]) expect(explicitChoice(t)).toEqual({})
+})
+
+test('haiku is never left on real coding; a mechanical one-liner may stay', async () => {
+  const v = { tier: 'haiku' as const, effort: 'low' as const, confidence: 0.9, reason: 'r' }
+  expect(floorCoding(v, 'write a function that parses dates in utils.ts').tier).toBe('sonnet')
+  expect(floorCoding(v, 'fix the bug in the login handler').effort).toBe('medium')
+  expect(floorCoding(v, 'rename foo to bar').tier).toBe('haiku')
+  expect(floorCoding(v, 'what does this function do?').tier).toBe('haiku')
 })

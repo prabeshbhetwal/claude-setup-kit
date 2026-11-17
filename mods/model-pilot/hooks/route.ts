@@ -8,6 +8,7 @@ import type { Judged } from './engine'
 import { explicitChoice, isFollowUp, rulesVerdict } from './judge'
 import { decide, handoffBand, handoffThreshold, isPrivateFolder, placeTip, rulesFloor, tierOf, TIERS } from './policy'
 import type { Decision, Effort, JudgeInput, Tier, Verdict, Warm } from './policy'
+import { FAILED_CHECK } from './steer'
 import { addCosts, addUsage, asIfOn, estSavingUsd, noCosts, priceOf } from './prices'
 import type { Costs, Usage } from './prices'
 import type { PilotFlags, PilotView } from '../types'
@@ -74,6 +75,8 @@ let seen: StepEvent | undefined
 let isSwitchNoted = false
 let turnCount = 0
 let offeredBand = -1
+/** The last turn was checkable work tried at low effort: a failure report re-runs at high. */
+let lastCheckableLow = false
 
 /** The prompt cache as last seen, per tier. */
 export const warmNow = (): Warm => warm
@@ -209,7 +212,9 @@ export async function settle($: EngineInterface, o: Options, f: PilotFlags, rec:
     ...cache,
     lowerStreak,
     canUpgrade: o.allowUpgrade,
+    isRetry: lastCheckableLow && FAILED_CHECK.test(rec.text),
   })
+  lastCheckableLow = verdict.checkable === true && decision.effort === 'low'
   rec.tip = source === 'sticky' ? null : placeTip(decision.required, decision.tier ?? menuTier, cache)
   return { decision, flags }
 }

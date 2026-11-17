@@ -7,7 +7,7 @@ import { appendLog, isRoutableAgent, judge } from './engine'
 import { runEval } from './evalrun'
 import { afterAnswer, FABLE_CHAT, fableQuestion, needsFableYes, RUN_FABLE, USE_OPUS } from './fable'
 import { agentTier, estTurnCost, HANDOFF_PROMPT, spawnNote, tierOf } from './policy'
-import type { Decision } from './policy'
+import type { Decision, Effort } from './policy'
 import { begin, CACHE_TTL_MS, chainOf, finish, isPrivateHere, noteSwitch, prestart, record, settle, turnOf, warmNow } from './route'
 import { bandText } from './band'
 import { costText, HELP, statusText } from './status'
@@ -29,6 +29,8 @@ async function activeFlags($: EngineInterface, isEnabled: boolean): Promise<Pilo
 }
 
 let isFableOkHere = false
+/** Sub-agent id to the effort the pilot judged for its task. */
+const agentEffort = new Map<string, Effort>()
 
 /** When the pilot, not the person, chose Fable: ask first (unless switched off). Anything but a yes runs on Opus. */
 async function withFableYes($: EngineInterface, o: Options, d: Decision, menuModel: string): Promise<Decision> {
@@ -85,6 +87,9 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    // A sub-agent the pilot sent to another model runs at the effort judged for its task.
+    const subEffort = e.agentId === undefined ? undefined : agentEffort.get(e.agentId)
+    if (subEffort !== undefined && subEffort !== e.effort) return yield* next({ ...e, effort: subEffort })
     const rec = e.agentId === undefined ? turnOf(e.turnId) : undefined
     if (!rec || rec.isFailed) return yield* next(e)
     if (!rec.decision) {
@@ -159,6 +164,7 @@ export const register: Register = (on, options) => {
 
   on('agent.spawn', async ($, e, next) => {
     let tier: string | undefined
+    let effort: Effort | undefined
     let line: Record<string, unknown> | undefined
     try {
       const f = options.subagents === false || o.isShadow ? undefined : await activeFlags($, isEnabled)
@@ -171,15 +177,18 @@ export const register: Register = (on, options) => {
         const parent = tierOf(e.parentModel) ?? 'sonnet'
         const picked = agentTier(j.verdict, j.source, parent)
         tier = picked
+        // Its own effort: the judged one, never low on haiku (Anthropic: low skips searches).
+        effort = picked === 'haiku' && j.verdict.effort === 'low' ? 'medium' : j.verdict.effort
         const note = spawnNote(e.subagentType, picked, parent, { contextTokens: (await $.session.usage()).context.tokens ?? 0, warm: warmNow(), now: await $.clock.now(), cacheTtlMs: CACHE_TTL_MS })
         if (note) await update($, view, v => (v ? { ...v, tip: note } : v))
-        line = { place_tip: note, judge: j.by, kind: 'agent', agent: e.subagentType, picked: tier, picked_effort: null, required: tier, menu: e.parentModel, source: j.source, reason: j.verdict.reason, confidence: j.verdict.confidence, judge_ms: j.ms, judge_fail: j.fail ?? null, prompt_chars: e.prompt.length }
+        line = { place_tip: note, judge: j.by, kind: 'agent', agent: e.subagentType, picked: tier, picked_effort: effort ?? null, required: tier, menu: e.parentModel, source: j.source, reason: j.verdict.reason, confidence: j.verdict.confidence, judge_ms: j.ms, judge_fail: j.fail ?? null, prompt_chars: e.prompt.length }
       }
     } catch {
       tier = undefined
     }
     if (!tier || !line) return next(e)
     const out = await next({ ...e, model: tier })
+    if (out.agentId && effort) agentEffort.set(out.agentId, effort)
     const actual = out.model ?? null
     void appendLog($, { ts: new Date(await $.clock.now()).toISOString(), session: await $.session.id(), ...line, actual, actual_from: 'api', mismatch: tierOf(actual ?? undefined) !== tier, est_saving_usd: 0 }).catch(() => undefined)
     return out

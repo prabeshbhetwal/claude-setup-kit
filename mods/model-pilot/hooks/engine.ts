@@ -2,7 +2,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import { jevBody, parseJevReply } from './jev'
-import { RUBRIC, judgePrompt, parseJudgeReply, rulesVerdict } from './judge'
+import { RUBRIC, judgePrompt, parseJudgeReply, rulesVerdict, floorCoding } from './judge'
 import { agentFileNamesModel } from './policy'
 import type { JudgeInput, Verdict } from './policy'
 import type { Usage } from './prices'
@@ -91,7 +91,13 @@ export function firstOf<T>(ps: Promise<T | undefined>[]): Promise<T | undefined>
 export const HEDGE_MS = 1200
 
 /** Asks the judges: Jev first, Haiku too if Jev is slow or fails; the rules when neither answers. */
+/** The verdict, with Haiku never left on real coding (Anthropic: Haiku is not for writing code). */
 export async function judge($: EngineInterface, input: JudgeInput, o: JudgeOptions): Promise<Judged> {
+  const j = await judgeOnce($, input, o)
+  return { ...j, verdict: floorCoding(j.verdict, input.prompt) }
+}
+
+async function judgeOnce($: EngineInterface, input: JudgeInput, o: JudgeOptions): Promise<Judged> {
   if (o.isPrivate) return { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: 0, fail: 'privacy' }
   const t0 = await $.clock.now()
   const ms = async () => (await $.clock.now()) - t0

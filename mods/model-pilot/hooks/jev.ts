@@ -1,7 +1,7 @@
 // model-pilot's Jev judge (TypeSafe): the request body and the reading of its answer. Pure.
 // Jev answers a choice with a probability per option, so "how sure the tier is high
 // enough" is measured, not self-reported: 1 minus the weight on the tiers above the pick.
-import { RULES_FOR_JUDGES, TIER_GUIDE, defaultEffort } from './judge'
+import { CHECKABLE_GUIDE, GAP_GUIDE, RULES_FOR_JUDGES, TIER_GUIDE, defaultEffort } from './judge'
 import { EFFORTS, TIERS } from './policy'
 import type { JudgeInput, Verdict } from './policy'
 
@@ -27,8 +27,18 @@ export function jevBody(i: JudgeInput): Record<string, unknown> {
       },
       effort: {
         type: 'choice',
-        instructions: 'How much reasoning effort does `request` need? Haiku-tier tasks are low; sonnet-tier tasks are medium unless truly trivial; opus-tier medium or high.',
+        instructions: 'How much reasoning effort does `request` need? Haiku-tier tasks are medium (low only for a one-line fact); sonnet-tier tasks are medium unless truly trivial; opus-tier medium, high only when hard and risky; fable-tier medium, high for the hardest.',
         criteria: { low: 'no real reasoning needed', medium: 'ordinary work', high: 'hard or risky', xhigh: 'hardest problems only' },
+      },
+      gap: {
+        type: 'choice',
+        instructions: `What would a stronger model add to \`request\`? ${GAP_GUIDE}`,
+        criteria: { knowledge: 'more understanding than a weaker model has', care: 'more thoroughness from a capable model' },
+      },
+      checkable: {
+        type: 'choice',
+        instructions: `Is \`request\` checkable? ${CHECKABLE_GUIDE}`,
+        criteria: { yes: 'an automatic check shows if it is right', no: 'no automatic check' },
       },
     },
   }
@@ -53,5 +63,7 @@ export function parseJevReply(stdout: string): Verdict | undefined {
   const runnerUp = TIERS.filter(t => t !== tier && typeof probs[t] === 'number' && (probs[t] as number) >= 0.05)
     .map(t => `${t} ${(probs[t] as number).toFixed(2)}`)
     .join(', ')
-  return { tier, effort, confidence, reason: `Jev: ${tier} ${self.toFixed(2)}${runnerUp ? ` (also ${runnerUp})` : ''}` }
+  const gap = answers?.gap?.choice === 'knowledge' || answers?.gap?.choice === 'care' ? { gap: answers.gap.choice as 'knowledge' | 'care' } : {}
+  const checkable = answers?.checkable?.choice === 'yes' || answers?.checkable?.choice === 'no' ? { checkable: answers.checkable.choice === 'yes' } : {}
+  return { tier, effort, confidence, ...gap, ...checkable, reason: `Jev: ${tier} ${self.toFixed(2)}${runnerUp ? ` (also ${runnerUp})` : ''}` }
 }
