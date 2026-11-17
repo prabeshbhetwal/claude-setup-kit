@@ -32,7 +32,12 @@ def merge(settings: dict, fragment: dict, components: list) -> list:
             h["command"] = h["command"].replace("__RTK__", os.environ.get("KIT_RTK") or "rtk")
             match = h.pop("match", h["command"])  # an existing hook whose command contains this counts as present
             groups = hooks.setdefault(event, [])
-            if any(match in x.get("command", "") for g in groups for x in g.get("hooks", [])):
+            present = [x for g in groups for x in g.get("hooks", []) if match in x.get("command", "")]
+            for x in present:  # an older install's shorter timeout is raised, never lowered
+                if isinstance(x.get("timeout"), (int, float)) and h.get("timeout", 0) > x["timeout"]:
+                    x["timeout"] = h["timeout"]
+                    changes.append(f"hook {event} timeout -> {h['timeout']}s: {x['command']}")
+            if present:
                 continue
             group = next((g for g in groups if g.get("matcher") == matcher), None)
             if group is None:
@@ -96,6 +101,10 @@ def selftest() -> None:
     f2 = {"r": {"hooks": [{"event": "PreToolUse", "matcher": "Bash", "type": "command",
                            "command": '"__RTK__" hook claude', "match": "hook claude"}]}}
     assert merge(old, f2, ["r"]) == [], "an older bare `rtk hook claude` must count as present"
+    s4 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x", "timeout": 5}]}]}}
+    f4 = {"t": {"hooks": [{"event": "Stop", "type": "command", "command": "x", "timeout": 15}]}}
+    assert len(merge(s4, f4, ["t"])) == 1 and s4["hooks"]["Stop"][0]["hooks"][0]["timeout"] == 15, s4
+    assert merge(s4, {"t": {"hooks": [{"event": "Stop", "type": "command", "command": "x", "timeout": 3}]}}, ["t"]) == []
     f3 = {"g": {"deny": ["Read(.env)", "Bash(git reset --hard *)"], "settings": {"sandbox": {"enabled": True}}}}
     s3 = {"permissions": {"allow": ["Bash(ls *)"], "deny": ["Read(.env)"]}, "sandbox": {"enabled": False}}
     assert merge(s3, f3, ["g"]) == ["deny Bash(git reset --hard *)"], s3

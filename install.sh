@@ -427,6 +427,8 @@ fi
 if has safety; then
   copy_file "$KIT/files/bin/trashmv" "$BIN/trashmv" exec replace
   copy_file "$KIT/files/hooks/block-rm.py" "$CL/hooks/block-rm.py" exec replace
+  copy_file "$KIT/files/hooks/apply-hook-timeouts.py" "$CL/hooks/apply-hook-timeouts.py" exec replace
+  python3 "$CL/hooks/apply-hook-timeouts.py" >/dev/null 2>&1 && ok "plugin hook timeouts raised to 15 s" || fail "apply-hook-timeouts.py"
 fi
 if has verify; then
   copy_file "$KIT/files/hooks/verify-done.py" "$CL/hooks/verify-done.py" exec replace

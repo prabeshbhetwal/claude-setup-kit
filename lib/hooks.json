@@ -17,8 +17,16 @@
         "matcher": "Bash",
         "type": "command",
         "command": "python3 \"$HOME/.claude/hooks/block-rm.py\"",
-        "timeout": 10,
+        "timeout": 15,
         "match": "block-rm.py"
+      },
+      {
+        "event": "SessionStart",
+        "matcher": "",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/apply-hook-timeouts.py\" >/dev/null 2>&1 || true",
+        "timeout": 15,
+        "match": "apply-hook-timeouts.py"
       }
     ]
   },
@@ -49,7 +57,7 @@
         "matcher": "Grep|Glob|Bash|Read",
         "type": "command",
         "command": "python3 \"$HOME/.claude/hooks/index-first.py\" pre",
-        "timeout": 10,
+        "timeout": 15,
         "match": "index-first.py\" pre"
       },
       {
@@ -57,7 +65,7 @@
         "matcher": "mcp__codegraph__.*|Edit|Write|MultiEdit",
         "type": "command",
         "command": "python3 \"$HOME/.claude/hooks/index-first.py\" post",
-        "timeout": 10,
+        "timeout": 15,
         "match": "index-first.py\" post"
       },
       {
@@ -65,7 +73,7 @@
         "matcher": null,
         "type": "command",
         "command": "python3 \"$HOME/.claude/hooks/index-first.py\" prompt",
-        "timeout": 10,
+        "timeout": 15,
         "match": "index-first.py\" prompt"
       }
     ]
@@ -111,7 +119,7 @@
         "matcher": "Bash",
         "type": "command",
         "command": "python3 \"$HOME/.claude/hooks/jev-hooks.py\" pre-bash",
-        "timeout": 10,
+        "timeout": 15,
         "async": true,
         "match": "jev-hooks.py\" pre-bash"
       },
@@ -127,7 +135,7 @@
         "event": "SubagentStop",
         "type": "command",
         "command": "python3 \"$HOME/.claude/hooks/jev-hooks.py\" subagent-stop",
-        "timeout": 10,
+        "timeout": 15,
         "async": true,
         "match": "jev-hooks.py\" subagent-stop"
       }
@@ -147,7 +155,7 @@
         "event": "UserPromptSubmit",
         "type": "command",
         "command": "python3 \"$HOME/.claude/hooks/house-rules-recall.py\"",
-        "timeout": 5,
+        "timeout": 15,
         "match": "house-rules-recall.py"
       }
     ]
