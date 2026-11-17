@@ -4,7 +4,9 @@
   merge_settings.py SETTINGS FRAGMENT.json [component ...]   # merge the named components
   merge_settings.py selftest
 
-FRAGMENT maps component id -> {"hooks": [{"event", "matcher", <hook fields>}], "env": {...}}.
+FRAGMENT maps component id -> {"hooks": [{"event", "matcher", <hook fields>}], "env": {...},
+                               "deny": [permission rules], "settings": {top-level key: value}}.
+- A deny rule is appended only when missing; a top-level setting is set only when the key is absent.
 - A hook is added only when no existing hook for that event already runs the same command.
 - An env key is added only when it is absent; an existing value is never changed.
 - Before the first change the file is copied to SETTINGS.bak-kit-<timestamp>.
@@ -42,6 +44,15 @@ def merge(settings: dict, fragment: dict, components: list) -> list:
             if k not in env:
                 env[k] = v
                 changes.append(f"env {k}={v}")
+        deny = settings.setdefault("permissions", {}).setdefault("deny", []) if part.get("deny") else None
+        for rule in part.get("deny", []):
+            if rule not in deny:
+                deny.append(rule)
+                changes.append(f"deny {rule}")
+        for k, v in part.get("settings", {}).items():  # top-level keys: set only when absent
+            if k not in settings:
+                settings[k] = v
+                changes.append(f"setting {k}={json.dumps(v)}")
     if not env:
         settings.pop("env")
     if not hooks:
@@ -85,6 +96,12 @@ def selftest() -> None:
     f2 = {"r": {"hooks": [{"event": "PreToolUse", "matcher": "Bash", "type": "command",
                            "command": '"__RTK__" hook claude', "match": "hook claude"}]}}
     assert merge(old, f2, ["r"]) == [], "an older bare `rtk hook claude` must count as present"
+    f3 = {"g": {"deny": ["Read(.env)", "Bash(git reset --hard *)"], "settings": {"sandbox": {"enabled": True}}}}
+    s3 = {"permissions": {"allow": ["Bash(ls *)"], "deny": ["Read(.env)"]}, "sandbox": {"enabled": False}}
+    assert merge(s3, f3, ["g"]) == ["deny Bash(git reset --hard *)"], s3
+    assert s3["permissions"] == {"allow": ["Bash(ls *)"], "deny": ["Read(.env)", "Bash(git reset --hard *)"]}, s3
+    assert s3["sandbox"] == {"enabled": False}, "an existing sandbox choice must be kept"
+    assert merge(s3, f3, ["g"]) == [], "deny merge must be idempotent"
     print("selftest ok")
 
 

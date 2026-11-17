@@ -25,8 +25,9 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
 3. **T above current (route up):**
    - Bounded task → helper agent with explicit `model` (`opus`/`fable`) + `effort`. Router keeps named models.
    - Long autonomous Fable/Opus job → `/pick-model handoff` (new chat one model up). Sessions can't start above parent model.
+   - **Big job with many scoped parts** → this chat leads and judges; each part → Sonnet helper at medium (Anthropic's example: "Use Sonnet subagents to upgrade each package and fix its tests"). State "done" as a check first: tests pass, output shown.
 4. Bad result: fix prompt and context first (`/rewind`). Then ask which miss it was: **didn't try hard enough** (skipped a file, no tests, no double-check) → raise effort one level; **didn't know enough** (subtle bug, unfamiliar domain, architecture, ambiguity, confidently wrong with full context) → one model up at lower effort (Opus high fails → Fable medium).
-5. Never switch main model mid-chat yourself (cache loss, lost thinking) → handoff instead.
+5. Never switch main model mid-chat yourself (cache loss, lost thinking) → handoff instead. If the user wants to switch here anyway: `/compact` first while the cache is warm, then switch, so the new model reads a summary.
 6. **Handoff rule:** context above ~250k, or task finished → hand off to a fresh chat (`/handoff`) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour.
 7. **Model pilot on (not shadow) replaces rules 5 and 6:** it picks this chat's model + effort per prompt and offers a fresh chat at the size the user chose (`/pilot status`). One owner per decision: don't apply the 250k rule on top of it.
 

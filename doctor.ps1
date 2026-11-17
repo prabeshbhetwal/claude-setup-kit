@@ -62,6 +62,16 @@ if (Has 'safety') {
   Selftest 'block-rm.py' { & $PY "$CL\hooks\block-rm.py" --test }
   Hook-On 'PreToolUse' 'block-rm.py' 'rm blocker (Bash tool only; the PowerShell tool is not covered)'
 }
+if (Has 'guard') {
+  $deny = @()
+  try { $deny = @((Get-Content "$CL\settings.json" -Raw | ConvertFrom-Json).permissions.deny) } catch {}
+  if ($deny -contains 'Read(.env)' -and $deny -contains 'Bash(git reset --hard *)') { Pass 'deny rules (.env, git reset --hard, force push; Bash tool only, not the PowerShell tool)' } else { Fail 'deny rules missing from settings.json (re-run the installer)' }
+}
+if (Has 'verify') {
+  Selftest 'verify-done.py' { & $PY "$CL\hooks\verify-done.py" selftest }
+  Hook-On 'PostToolUse' 'verify-done.py' 'lint after each edit'
+  Hook-On 'Stop' 'verify-done.py' 'done check before finishing'
+}
 if (Has 'indexes') {
   Selftest 'codegraph-gate.py' { & $PY "$CL\hooks\codegraph-gate.py" --test }
   Hook-On 'SessionStart' 'ensure-indexes.sh' 'index build/refresh'

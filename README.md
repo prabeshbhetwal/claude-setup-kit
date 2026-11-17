@@ -95,7 +95,7 @@ Pick the tiers you want; `--list` prints every tool.
 | macOS | Windows | What it does |
 |---|---|---|
 | `--yes` | `-Yes` | No questions: core tier only |
-| `--tiers core,memory` | `-Tiers core,memory` | No questions: these tiers (`core memory routing judge deliberation`) |
+| `--tiers core,memory` | `-Tiers core,memory` | No questions: these tiers (`core guard memory routing judge deliberation`) |
 | `--only rtk,caveman` | `-Only rtk,caveman` | Just these tools |
 | `--skip graphify` | `-Skip graphify` | Leave tools out (and anything that needs them) |
 | `--install-missing` | `-InstallMissing` | Install missing prerequisites without asking |
@@ -119,6 +119,9 @@ Pick the tiers you want; `--list` prints every tool.
 | core | Auto index hooks | Keeps the CodeGraph/Graphify maps fresh in the background | — |
 | core | Token measuring | A record of every turn's tokens, a 30-day baseline, and a weekly, fortnightly or monthly report | — |
 | core | Rules file + guides | Tells Claude when to use each tool you installed | 4 placeholders |
+| guard | Deny rules | Claude can never read `.env`, `~/.ssh`, `~/.aws`, or run `git reset --hard`, `git clean` or a force push, in any permission mode | — |
+| guard | Bash sandbox (macOS, Linux) | Claude Code's own sandbox: shell commands write only inside the project. Off unless ticked | macOS, Linux, WSL2 |
+| guard | Done checks | After each edit runs the project's `.claude/lint`; before finishing runs `.claude/verify` (your tests). A failure sends Claude back to fix it | A `.claude/verify` per project |
 | memory | Supermemory | Remembers decisions across chats | Supermemory account |
 | memory | Cognee (local) | Private knowledge map of your chats, on your computer; Claude and Codex can share it | Your Claude plan (no key) or an LLM API key (paid per use); Python 3.10+ |
 | memory | remember | Session diary with a summary at start | — |
@@ -141,6 +144,27 @@ Each tool has one job, and the rules file gives each one a trigger, so they do n
 The token report lists any installed tool with no sign of use in its period, so you can drop what you do not use.
 
 Every key, where it goes, and what still works without it: [.env.example](.env.example).
+
+## Safety rules and done checks
+
+The rule behind this group: **can it be taken back?** Code edits can (git), so Claude does them freely. Leaked secrets, wiped work and force-pushed history can't, so they become deny rules. Claude Code applies deny rules in every permission mode, auto and bypass included.
+
+- **Deny rules** are added to `permissions.deny` in `~/.claude/settings.json`; your own rules are kept. Add more there yourself (for example `"Read(./secrets/**)"`). Only the Bash and file tools are covered: on Windows the PowerShell tool is not.
+- **Outgoing data** (messages, uploads) is better left to auto mode, which checks each action, than to a fixed rule list.
+- **Bash sandbox:** off unless you tick it. Some installers and tools that write outside the project will ask or fail inside it; `/sandbox` changes it any time.
+- **Done checks** do nothing until a project opts in. Add an executable `.claude/verify` to a project, for example:
+
+  ```sh
+  #!/bin/sh
+  npm test --silent
+  ```
+
+  Keep its output quiet: the last 40 lines of a failure go back to Claude, which tries up to three times before stopping. `.claude/lint` (optional) gets the edited file's path after each edit. On Windows use `verify.cmd` or `verify.ps1`.
+- **Bigger jobs** are safer in a cloud session (Claude Code on the web): a fresh copy of the repo, nothing on your computer at risk.
+
+### For teams: managed settings
+
+An admin can set defaults for everyone in `managed-settings.json` (see Claude Code's [settings docs](https://code.claude.com/docs/en/settings)): `model` (the default), `availableModels` (which models people may pick), `effortLevel` and `maxEffortLevel`, and `permissions.deny`. Anthropic's "Maximizing Value from Claude Code" webinar calls changing a team default away from the biggest model the highest-leverage cost fix.
 
 ## Model pilot
 

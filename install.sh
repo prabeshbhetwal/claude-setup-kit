@@ -3,7 +3,7 @@
 #
 #   ./install.sh                      explain every tool, then ask which to install (recommended)
 #   ./install.sh --yes                no questions: core tier only (no keys, no paid services)
-#   ./install.sh --tiers core,memory,routing,judge,deliberation   (no questions)
+#   ./install.sh --tiers core,guard,memory,routing,judge,deliberation   (no questions)
 #   ./install.sh --only caveman,rtk   just these tools (dependencies are added)
 #   ./install.sh --list               print the catalogue and exit
 # Other options: --skip id,id  --caveman-mode lite|full|ultra  --handoff auto|250k|500k|750k|never  --confirm-fable yes|no
@@ -19,7 +19,7 @@ CL="$HOME/.claude"
 BIN="$HOME/.local/bin"
 TS=$(date +%Y%m%d-%H%M%S)
 CAT="$KIT/lib/catalog.txt"
-TIERS_ALL="core memory routing judge deliberation"
+TIERS_ALL="core guard memory routing judge deliberation"
 SELECTED=" "
 TODO=""
 FAILED=""
@@ -113,6 +113,7 @@ tier_title() {
   case "$1" in
     keys) echo "FIRST, THE TOOLS THAT NEED AN API KEY OR AN ACCOUNT. Each one says which key and what it costs; you add the keys after the install, which lists where each goes. Tick the ones you want." ;;
     core) echo "CORE: the token savers and safety net. Free: no keys, no accounts. Recommended for everyone." ;;
+    guard) echo "SAFETY RULES AND CHECKS: decide what Claude may never do, and check its work automatically. Free." ;;
     memory) echo "MEMORY: Claude remembers past chats and decisions. No key needed here (Supermemory, which needs an account, was in the first group)." ;;
     routing) echo "MODEL ROUTING: uses cheaper models where they do the job just as well. Free." ;;
     judge) echo "JUDGE TOOLS: fast outside yes/no checks over long lists and media. Need API keys (one paid, one with a free tier)." ;;
@@ -137,7 +138,7 @@ else
     ids=$(echo $ids); [ -n "$ids" ] || continue  # a tier whose tools were all in the first group
     say ""; say "=== $(tier_title "$t")"
     i=0; for id in $ids; do i=$((i + 1)); describe "$id" "$i"; done
-    case $t in core) d=$ids ;; keys) d="supermemory" ;; memory) d="remember" ;; *) d="" ;; esac  # ticked at start
+    case $t in core) d=$ids ;; guard) d="guard verify" ;; keys) d="supermemory" ;; memory) d="remember" ;; *) d="" ;; esac  # ticked at start
     if { : </dev/tty; } 2>/dev/null; then pick_ids "$ids" "$d"
     else for id in $d; do add "$id"; done; fi
   done
@@ -179,11 +180,11 @@ if has rules; then
   [ -f "$CL/CLAUDE.md" ] && say "You already have a CLAUDE.md: it is kept as it is, and the kit's version is saved next to it as CLAUDE.md.kit-new for you to merge."
   ask "Write the rules file and guides?" y || { drop rules; info "rules file left out"; }
 fi
-for id in rtk safety indexes routing cognee jev measure; do
+for id in rtk safety indexes routing cognee jev measure guard sandbox verify; do
   has $id || continue
   say ""
   say "Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command)."
-  say "RTK, safe delete, auto indexes, the routing card and the per-turn token record only work through them. They are added to"
+  say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules and done checks only work through them. They are added to"
   say "~/.claude/settings.json: the file is backed up first, nothing in it is removed or changed, only missing entries are added."
   ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
   break
@@ -426,6 +427,10 @@ fi
 if has safety; then
   copy_file "$KIT/files/bin/trashmv" "$BIN/trashmv" exec replace
   copy_file "$KIT/files/hooks/block-rm.py" "$CL/hooks/block-rm.py" exec replace
+fi
+if has verify; then
+  copy_file "$KIT/files/hooks/verify-done.py" "$CL/hooks/verify-done.py" exec replace
+  todo "Done checks: in each project you want checked, add an executable .claude/verify (e.g. '#!/bin/sh' then 'npm test --silent'); optionally .claude/lint, which gets the edited file's path."
 fi
 if has indexes; then
   copy_file "$KIT/files/hooks/ensure-indexes.sh" "$CL/hooks/ensure-indexes.sh" exec replace

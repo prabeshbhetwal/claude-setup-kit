@@ -77,6 +77,19 @@ if has safety; then
   selftest python3 "$CL/hooks/block-rm.py" --test
   hook_on PreToolUse "block-rm.py" "rm blocker"
 fi
+if has guard; then
+  n=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(r in d.get("permissions",{}).get("deny",[]) for r in ("Read(.env)","Bash(git reset --hard *)","Bash(git push --force *)")))' "$CL/settings.json" 2>/dev/null)
+  [ "$n" = 3 ] && pass "deny rules (.env, git reset --hard, force push)" || fail "deny rules missing from settings.json (re-run the installer)"
+fi
+if has sandbox; then
+  s=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("sandbox",{}).get("enabled"))' "$CL/settings.json" 2>/dev/null)
+  [ "$s" = True ] && pass "Bash sandbox on" || warn "Bash sandbox is off in settings.json (you chose that earlier, or run /sandbox)"
+fi
+if has verify; then
+  selftest python3 "$CL/hooks/verify-done.py" selftest
+  hook_on PostToolUse "verify-done.py" "lint after each edit"
+  hook_on Stop "verify-done.py" "done check before finishing"
+fi
 if has indexes; then
   [ -f "$CL/hooks/ensure-indexes.sh" ] && pass "ensure-indexes.sh" || fail "ensure-indexes.sh missing"
   selftest python3 "$CL/hooks/codegraph-gate.py" --test

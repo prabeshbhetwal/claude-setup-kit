@@ -120,5 +120,46 @@
         "match": "token-ledger.py"
       }
     ]
+  },
+  "guard": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.local)",
+      "Read(.env.production)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean *)",
+      "Bash(git push --force *)",
+      "Bash(git push * --force)",
+      "Bash(git push -f *)",
+      "Bash(git push * -f)"
+    ]
+  },
+  "sandbox": {
+    "settings": {
+      "sandbox": {
+        "enabled": true
+      }
+    }
+  },
+  "verify": {
+    "hooks": [
+      {
+        "event": "PostToolUse",
+        "matcher": "Edit|Write|MultiEdit",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/verify-done.py\" edit",
+        "timeout": 90,
+        "match": "verify-done.py\" edit"
+      },
+      {
+        "event": "Stop",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/verify-done.py\" stop",
+        "timeout": 660,
+        "match": "verify-done.py\" stop"
+      }
+    ]
   }
 }

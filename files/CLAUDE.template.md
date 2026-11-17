@@ -86,7 +86,14 @@ Guides in `~/.claude/guides/`: read only on Router match, once per session unles
 | Code repo / coding task | Whole task, from step one: memory + token stack + CodeGraph and/or Graphify. Project `CLAUDE.md` first (missing → bootstrap, see `knowledge-and-projects.md`) |
 | Architecture / specs | Graphify → CodeGraph for symbols it names |
 | Plan / design, before code | Grill Me first (questions me about my project) → Deliberation for one-way, high-stakes calls (other models judge the plan) |
-| Heavy output / long session | context-mode; suggest `/compact` at milestones, `/clear` between unrelated tasks |
+| Heavy output / long session | context-mode; suggest `/compact` at milestones, `/clear` between unrelated tasks (one long chat used about 2x the tokens of the same work split with `/clear`) |
+
+Context hygiene (every turn re-reads everything before it):
+- Quiet commands: tests and builds with quiet/summary flags (`--silent`, `-q`, `--reporter=dot`), failing lines only.
+- Prefer a CLI (`gh`, `git`, cloud CLIs) over an MCP server that does the same job; MCP tool lists load into every chat.
+- Point at files by path once instead of exploring; send noisy searches to a cheaper helper and keep only its conclusion.
+- Before starting work, say what "done" means as a check (tests pass, output shown) and show that check at the end.
+- CLAUDE.md files (this one and each project's) hold only what Claude can't see from the code: what applies to every task. Workflows go in skills, which load only when used. Suggest trimming when one grows past ~200 lines.
 
 ## Router
 | Signal | Read |

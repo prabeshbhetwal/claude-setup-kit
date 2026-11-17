@@ -2,7 +2,7 @@
 #
 #   .\install.ps1                         explain every tool, then ask which to install (recommended)
 #   .\install.ps1 -Yes                    no questions: core tier only (no keys, no paid services)
-#   .\install.ps1 -Tiers core,memory,routing,judge,deliberation
+#   .\install.ps1 -Tiers core,guard,memory,routing,judge,deliberation
 #   .\install.ps1 -Only caveman,rtk       just these tools (dependencies are added)
 #   .\install.ps1 -List                   print the catalogue and exit
 # Other options: -Skip id,id  -CavemanMode lite|full|ultra
@@ -25,7 +25,7 @@ $H = $env:USERPROFILE
 $CL = Join-Path $H '.claude'
 $BIN = Join-Path $H '.local\bin'
 $TS = Get-Date -Format 'yyyyMMdd-HHmmss'
-$TIERS_ALL = @('core', 'memory', 'routing', 'judge', 'deliberation')
+$TIERS_ALL = @('core', 'guard', 'memory', 'routing', 'judge', 'deliberation')
 $DEPS = @(@('indexes', 'codegraph'), @('indexes', 'graphify'), @('mjudge', 'jev'))
 $script:Sel = New-Object System.Collections.Generic.List[string]
 $script:Todo = New-Object System.Collections.Generic.List[string]
@@ -66,6 +66,7 @@ function Describe($id, $n) {
 }
 $TierTitle = @{
   core = 'CORE: the token savers and safety net. Free: no keys, no accounts. Recommended for everyone.'
+  guard = 'SAFETY RULES AND CHECKS: decide what Claude may never do, and check its work automatically. Free.'
   keys = 'FIRST, THE TOOLS THAT NEED AN API KEY OR AN ACCOUNT. Each one says which key and what it costs; you add the keys after the install, which lists where each goes. Tick the ones you want.'
   memory = 'MEMORY: Claude remembers past chats and decisions. No key needed here (Supermemory, which needs an account, was in the first group).'
   routing = 'MODEL ROUTING: uses cheaper models where they do the job just as well. Free.'
@@ -88,7 +89,8 @@ if ($Only) {
   # Tools that need an API key or an account: asked about first, in one group, so nobody is surprised by a key later.
   $KeyIds = @('supermemory', 'jev', 'mjudge', 'deliberation')
   foreach ($t in @('keys') + $TIERS_ALL) {
-    $ids = if ($t -eq 'keys') { $KeyIds } else { @(TierIds $t | Where-Object { $KeyIds -notcontains $_ }) }
+    # The Bash sandbox does not exist on native Windows: never offered there.
+    $ids = if ($t -eq 'keys') { $KeyIds } else { @(TierIds $t | Where-Object { $KeyIds -notcontains $_ -and $_ -ne 'sandbox' }) }
     if (-not $ids) { continue }
     Write-Host ""; Write-Host "=== $($TierTitle[$t])"
     for ($i = 0; $i -lt $ids.Count; $i++) { Describe $ids[$i] ($i + 1) }
@@ -97,6 +99,7 @@ if ($Only) {
     if ($t -eq 'core') { foreach ($id in $ids) { [void]$on.Add($id) } }
     if ($t -eq 'keys') { [void]$on.Add('supermemory') }
     if ($t -eq 'memory') { [void]$on.Add('remember') }
+    if ($t -eq 'guard') { [void]$on.Add('guard'); [void]$on.Add('verify') }
     while ($true) {
       Write-Host ""
       for ($i = 0; $i -lt $ids.Count; $i++) { $m = if ($on.Contains($ids[$i])) { 'x' } else { ' ' }; Write-Host "  [$m] $($i + 1). $((Item $ids[$i]).Name)" }
@@ -115,6 +118,7 @@ if ($Only) {
 # Model pilot reads the session transcript with /bin/sh and tail: macOS only. Model badge is untested on Windows.
 if (Has 'model-pilot') { Drop 'model-pilot'; Info 'Model pilot is macOS only: left out on Windows' }
 if (Has 'model-badge') { Drop 'model-badge'; Info 'Model badge is macOS only for now: left out on Windows' }
+if (Has 'sandbox') { Drop 'sandbox'; Info 'Bash sandbox left out: Claude Code has no sandbox on native Windows (WSL2 only)' }
 # Skips first: a skipped tool also removes whatever needs it, so dependencies never pull it back in.
 $skipList = New-Object System.Collections.Generic.List[string]
 foreach ($id in (Split-Ids $Skip)) { if (-not (Item $id)) { Write-Host "Unknown tool in -Skip: $id (see -List)"; exit 2 }; $skipList.Add($id) }
@@ -144,7 +148,7 @@ if (Has 'rules') {
   if (Test-Path "$CL\CLAUDE.md") { Write-Host 'You already have a CLAUDE.md: it is kept as it is, and the kit''s version is saved next to it as CLAUDE.md.kit-new for you to merge.' }
   if (-not (Ask 'Write the rules file and guides?' 'y')) { Drop 'rules'; Info 'rules file left out' }
 }
-if (@('rtk', 'safety', 'indexes', 'routing', 'cognee', 'jev', 'measure') | Where-Object { Has $_ }) {
+if (@('rtk', 'safety', 'indexes', 'routing', 'cognee', 'jev', 'measure', 'guard', 'verify') | Where-Object { Has $_ }) {
   Write-Host ""
   Write-Host 'Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command).'
   Write-Host 'RTK, safe delete, auto indexes and the routing card only work through them. They are added to'
@@ -338,6 +342,10 @@ if (Has 'graphify') {
   elseif (Cmd 'graphify') { & graphify install --platform claude *> $null; if ($LASTEXITCODE -eq 0) { Ok 'graphify skill' } else { Fail 'graphify install --platform claude' } }
 }
 if (Has 'safety') { Install-Cmd 'trashmv'; Copy-Kit (Join-Path $KIT 'files\hooks\block-rm.py') "$CL\hooks\block-rm.py" 'replace' }
+if (Has 'verify') {
+  Copy-Kit (Join-Path $KIT 'files\hooks\verify-done.py') "$CL\hooks\verify-done.py" 'replace'
+  Todo 'Done checks: in each project you want checked, add .claude\verify.cmd or .claude\verify.ps1 (for example: npm test --silent); optionally .claude\lint.cmd, which gets the edited file''s path.'
+}
 if (Has 'indexes') {
   foreach ($f in @('ensure-indexes.sh', 'codegraph-gate.py', 'kit-timeout')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
 }
