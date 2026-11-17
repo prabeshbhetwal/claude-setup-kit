@@ -198,7 +198,7 @@ def selftest() -> None:
     many = [f"item {n}: {'broken build' if n % 2 else 'all green'}" for n in range(45)]  # > BATCH: two requests
     flags, used = judge("noul", "Does this report a failure?", many, "", {}, [])
     assert len(flags) == 45 and flags[1]["noul"] > flags[0]["noul"], "batch ordering wrong"
-    assert SECRET.search("api_key = abcdef1234567890"), "secret guard missed"  # scan:allow (fake test value)
+    assert SECRET.search("api_key = abcdef1234567890"), "secret guard missed"  # scan:allow gitleaks:allow (fake test value)
     print(f"selftest ok · noul {[round(x, 2) for x in p]} · 45-item batch tokens in={used['input_tokens']}")
 
 
