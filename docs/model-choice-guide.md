@@ -69,11 +69,23 @@ All four have a 1M-token window and 128k max output. Fast mode (Fable and Opus o
 - `/loop` belongs in its own fresh session.
 - For known grunt work on models that allow it, thinking can be turned off (`MAX_THINKING_TOKENS=0`); thinking cannot be disabled on Opus 5.5, Sonnet 5.5 or Fable.
 
+## From the "Maximizing Value from Claude Code" webinar (Lydia Hallie, Claude Code team, 27 min)
+
+Recorded when Fable 5.1, Opus 5 and Haiku 4.5 were current, so its prices and one cache rule are older than the docs above.
+
+- **Don't run the biggest model on a task that doesn't need it:** its price multiplies every token. Leaving the biggest model as a team's default is called the highest-leverage cost fix. Managed settings can set `model`, `availableModels`, `effortLevel` and `maxEffortLevel`.
+- **Haiku** for precisely describable or mechanical edits, **Sonnet** the generalist, **Opus** the expert for subtle bugs and unfamiliar ground, **Fable** the specialist. Medium effort on Fable is "excellent"; newer models at lower effort often match older ones at high.
+- **To switch model mid-task:** `/compact` first, then switch, so the new model reads a short summary instead of the whole chat. Compact or switch while the cache is warm, before a break.
+- **Cache lifetime:** about 1 hour on a plan, 5 minutes on API billing or a cloud provider, and **5 minutes for sub-agents everywhere**. A 1-hour cache write costs 2x input against 1.25x for 5 minutes; the short window is cheaper if you work in steady bursts.
+- **One long session used about twice the tokens** of the same work split with `/clear`.
+- **Changing effort breaks the cache on most models** (Fable 5.1 the exception) per the webinar. The newer API docs say the 5.5 family keeps the cache across per-message effort changes, and this kit measured 89 of 89 same-model effort changes keeping it. Trust the measurement for the 5.5 models.
+- Sub-agents can run a cheaper model and their own effort; send noisy work there and keep only the conclusion.
+
 ## Sources
 
 1. [Choosing a Claude model and effort level in Claude Code](https://claude.com/blog/claude-model-and-effort-level-in-claude-code) (same text at [claude.com/resources](https://claude.com/resources/articles/claude-model-and-effort-level-in-claude-code))
 2. [Model configuration, Claude Code docs](https://code.claude.com/docs/en/model-config); [settings reference](https://code.claude.com/docs/en/settings-reference); [workflows](https://code.claude.com/docs/en/workflows)
-3. [Maximizing the value of your Claude Code sessions](https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions); [webinar page](https://claude.com/resources/webinars/claude-code-maximizing-value) (recording behind a sign-up form, not watched)
+3. [Maximizing Value from Claude Code, webinar recording](https://anthropic.ondemand.goldcast.io/on-demand/5ca27c0b-2eab-45d5-bded-b18e6a2f0d7c) (transcribed in full); [Maximizing the value of your Claude Code sessions](https://claude.com/resources/articles/maximizing-the-value-of-your-claude-code-sessions); [webinar page](https://claude.com/resources/webinars/claude-code-maximizing-value) (recording behind a sign-up form, not watched)
 4. [Models, usage, and limits in Claude Code](https://support.claude.com/en/articles/14552983-models-usage-and-limits-in-claude-code); [Claude Code model configuration](https://support.claude.com/en/articles/11940350-claude-code-model-configuration)
 5. [Choosing the right model](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model) (the docs.anthropic.com copy redirects to it); [Models overview](https://platform.claude.com/docs/en/models/overview); [Optimizing for cost and intelligence](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence); effort, pricing, thinking and fast-mode pages linked from them
 6. [Choosing a Claude model for knowledge workers](https://academy.claude.com/tutorials/choosing-the-right-claude-model) (interactive widgets not captured)
