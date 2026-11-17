@@ -202,7 +202,8 @@ export function placeCosts(required: Tier, runTier: Tier, i: CacheState): Record
   const { steps, out } = SHAPE[required]
   const fresh = (startup: number): number => {
     const p = rateOf(required, startup)
-    return (startup * p.cacheWrite + (steps - 1) * startup * p.cacheRead + out * p.out) / 1e6
+    // Sub-agents get the 5-minute cache everywhere: writes at 1.25x input, not the main chat's 1-hour 2x.
+    return (startup * p.in * 1.25 + (steps - 1) * startup * p.cacheRead + out * p.out) / 1e6
   }
   const handOff = estTurnCost(runTier, 'haiku', i, 1)
   return {
