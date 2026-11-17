@@ -119,5 +119,17 @@
         "shell": "bash"
       }
     ]
+  },
+  "measure": {
+    "hooks": [
+      {
+        "event": "Stop",
+        "type": "command",
+        "command": "python \"$HOME/.claude/hooks/token-ledger.py\"",
+        "async": true,
+        "timeout": 30,
+        "match": "token-ledger.py"
+      }
+    ]
   }
 }

@@ -6,7 +6,7 @@
 
 Tokens = context read per request (input + cache_read + cache_creation), deduped by message.id, counted on the day
 the request was made. Saving is an estimate: for each session type, (median first-request context in the frozen
-before-week) minus (median since the trim), times that type's requests on the day. "Without the trim" = used + saving.
+before-period) minus (median since the trim), times that type's requests on the day. "Without the trim" = used + saving.
 """
 import glob
 import importlib.machinery

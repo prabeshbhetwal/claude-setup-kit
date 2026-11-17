@@ -16,7 +16,8 @@
 param(
   [switch]$Yes, [string[]]$Tiers, [string[]]$Only, [string[]]$Skip,
   [ValidateSet('', 'lite', 'full', 'ultra')][string]$CavemanMode = '',
-  [switch]$List, [switch]$InstallMissing
+  [switch]$List, [switch]$InstallMissing,
+  [ValidateSet('', 'week', 'fortnight', 'month', 'off')][string]$Report = ''
 )
 $ErrorActionPreference = 'Continue'
 $KIT = $PSScriptRoot
@@ -143,19 +144,26 @@ if (Has 'rules') {
   if (Test-Path "$CL\CLAUDE.md") { Write-Host 'You already have a CLAUDE.md: it is kept as it is, and the kit''s version is saved next to it as CLAUDE.md.kit-new for you to merge.' }
   if (-not (Ask 'Write the rules file and guides?' 'y')) { Drop 'rules'; Info 'rules file left out' }
 }
-if (@('rtk', 'safety', 'indexes', 'routing', 'cognee', 'jev') | Where-Object { Has $_ }) {
+if (@('rtk', 'safety', 'indexes', 'routing', 'cognee', 'jev', 'measure') | Where-Object { Has $_ }) {
   Write-Host ""
   Write-Host 'Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command).'
   Write-Host 'RTK, safe delete, auto indexes and the routing card only work through them. They are added to'
   Write-Host '~\.claude\settings.json: the file is backed up first, nothing in it is removed or changed, only missing entries are added.'
   if (-not (Ask 'Add the kit''s hooks to settings.json?' 'y')) { $DoSettings = $false; Info 'hooks not added: those tools stay installed but inactive until you re-run and say yes' }
 }
-if (Has 'measure') {
-  Write-Host ""
-  Write-Host 'Monthly report: on the 1st of each month at 09:00 Windows writes a token report (used, saved, would-have-used).'
-  Write-Host 'It reads local files only and uses no Claude tokens.'
-  if (-not (Ask 'Schedule the monthly report?' 'y')) { $DoSched = $false; Info 'monthly report not scheduled (run it by hand: python ~\.claude\hooks\token-monthly.py)' }
+if ((Has 'measure') -and -not $Report) {
+  $Report = 'month'
+  if (-not $Yes) {
+    Write-Host ""
+    Write-Host 'Token report: how much Claude used, how much the kit saved, and what you would have used without it.'
+    Write-Host 'It compares against your own last 30 days before this install, and adds up a small record written after'
+    Write-Host 'every turn. It reads local files only and uses no Claude tokens.'
+    Write-Host '  1. Weekly (every Monday)   2. Fortnightly (every second Monday)   3. Monthly (on the 1st)   4. Off'
+    $a = Read-Host '  How often? [3]'
+    $Report = switch ($a) { '1' { 'week' } '2' { 'fortnight' } '4' { 'off' } default { 'month' } }
+  }
 }
+if ($Report -eq 'off') { $DoSched = $false }
 if ($script:Sel.Count -eq 0) { Write-Host 'Nothing selected. Nothing changed.'; exit 0 }
 Write-Host ""; Write-Host 'Ready to install:'; foreach ($id in $script:Sel) { Write-Host "  - $((Item $id).Name)" }
 if (-not (Ask 'Go ahead?' 'y')) { Write-Host 'Stopped. Nothing changed.'; exit 0 }
@@ -334,18 +342,20 @@ if (Has 'indexes') {
   foreach ($f in @('ensure-indexes.sh', 'codegraph-gate.py', 'kit-timeout')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
 }
 if (Has 'measure') {
-  foreach ($f in @('token-scorecard.py', 'token-compare.py', 'token-daily.py', 'token-monthly.py', 'token-tools.py')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
-  New-Item -ItemType Directory -Force -Path "$CL\cache\token-compare\monthly" | Out-Null
+  foreach ($f in @('token-scorecard.py', 'token-compare.py', 'token-daily.py', 'token-report.py', 'token-tools.py', 'token-ledger.py')) { Copy-Kit (Join-Path $KIT "files\hooks\$f") "$CL\hooks\$f" 'replace' }
+  New-Item -ItemType Directory -Force -Path "$CL\cache\token-compare\reports" | Out-Null
   if (-not (Test-Path "$CL\cache\token-compare\change-date")) { [IO.File]::WriteAllText("$CL\cache\token-compare\change-date", (Get-Date -Format 'yyyy-MM-dd')) }
-  # Freeze the week before install now, while those transcripts still exist.
-  if (-not (Test-Path "$CL\cache\token-compare\before-week.json")) { & $PY "$CL\hooks\token-compare.py" *> $null; if ($LASTEXITCODE -eq 0) { Ok 'token baseline frozen (week before install)' } }
+  # Freeze the 30 days before install now, while those transcripts still exist.
+  if (-not (Test-Path "$CL\cache\token-compare\before-week.json")) { & $PY "$CL\hooks\token-compare.py" *> $null; if ($LASTEXITCODE -eq 0) { Ok 'token baseline frozen (30 days before install)' } }
+  $b = & $PY "$CL\hooks\token-compare.py" baseline 2>$null; if ($b) { Info "$b" }
+  & $PY "$CL\hooks\token-report.py" --set $Report *> $null; Ok "token report: $Report (change any time: python ~\.claude\hooks\token-report.py --set week|fortnight|month|off)"
+  schtasks /Delete /F /TN 'claude-setup-kit token-monthly' *> $null  # earlier kit versions: monthly task under another name
   if ($DoSched) {
-    Remove-Item "$CL\kit\no-monthly-schedule" -ErrorAction SilentlyContinue
-    # Monthly report: Task Scheduler runs token-monthly.py at 09:00 on the 1st. No Claude tokens. /F makes re-runs safe.
+    # A daily 09:00 task; the script writes a report only when a chosen period has finished and has none yet. /F makes re-runs safe.
     $pyw = (Get-Command pythonw -ErrorAction SilentlyContinue | Select-Object -First 1).Source; if (-not $pyw) { $pyw = (Get-Command $PY).Source }
-    schtasks /Create /F /SC MONTHLY /D 1 /ST 09:00 /TN 'claude-setup-kit token-monthly' /TR "`"$pyw`" `"$CL\hooks\token-monthly.py`"" *> $null
-    if ($LASTEXITCODE -eq 0) { Ok 'monthly token report scheduled (1st of each month, 09:00; report in ~\.claude\cache\token-compare\monthly)' } else { Fail 'schtasks /Create claude-setup-kit token-monthly' }
-  } else { New-Item -ItemType File -Force -Path "$CL\kit\no-monthly-schedule" | Out-Null }
+    schtasks /Create /F /SC DAILY /ST 09:00 /TN 'claude-setup-kit token-report' /TR "`"$pyw`" `"$CL\hooks\token-report.py`" --scheduled" *> $null
+    if ($LASTEXITCODE -eq 0) { Ok 'token report task scheduled (daily check at 09:00; report in ~\.claude\cache\token-compare\reports)' } else { Fail 'schtasks /Create claude-setup-kit token-report' }
+  } else { Info 'token report off: nothing scheduled (run it by hand: python ~\.claude\hooks\token-report.py)' }
 }
 
 # ---------------------------------------------------------------- memory

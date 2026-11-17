@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Before/after token comparison around one setup change (default: the day install.sh ran).
 
-  python3 ~/.claude/hooks/token-compare.py            # report (freezes the before-week on first run)
+  python3 ~/.claude/hooks/token-compare.py            # report (freezes the before-period on first run)
+  python3 ~/.claude/hooks/token-compare.py baseline   # what you used in the days before the change (install.sh shows it)
   python3 ~/.claude/hooks/token-compare.py selftest
 
-Before = the 7 full local days before the change day, after = the 7 full days after it; the change day is excluded.
+Before = the 30 full local days before the change day (TOKEN_COMPARE_BEFORE_DAYS), after = the 7 full days after it;
+the change day is excluded. Totals are shown per day, because the two periods differ in length.
 A session belongs to the week it started in. Usage is deduped by message.id. Context = input + cache_read + cache_creation.
 Primary metric: first-request context per session, compared inside each stratum (main/subagent x entrypoint x model family),
 because total tokens follow workload, not setup. Saving = stratum delta x that stratum's after-week requests, as a range.
@@ -23,7 +25,8 @@ _CD = os.path.expanduser("~/.claude/cache/token-compare/change-date")
 CHANGE = datetime.strptime(os.environ.get("TOKEN_COMPARE_CHANGE")
                            or (open(_CD).read().strip() if os.path.exists(_CD) else datetime.now().strftime("%Y-%m-%d")),
                            "%Y-%m-%d")  # local midnight of the change day
-BEFORE = (CHANGE - timedelta(days=7), CHANGE)
+BEFORE_DAYS = int(os.environ.get("TOKEN_COMPARE_BEFORE_DAYS") or 30)
+BEFORE = (CHANGE - timedelta(days=BEFORE_DAYS), CHANGE)
 AFTER = (CHANGE + timedelta(days=1), CHANGE + timedelta(days=8))
 P = os.path.expanduser("~/.claude/projects")
 OUT = os.path.expanduser("~/.claude/cache/token-compare")
@@ -108,13 +111,35 @@ def fm(x):
     return sign + (f"{x / 1e9:.2f}B" if x >= 1e9 else f"{x / 1e6:.1f}M" if x >= 1e6 else f"{x / 1e3:.1f}k")
 
 
+def totals(fmt):
+    """(label, fn(rows, days)) pairs: counts per day, ratios as they are."""
+    return (("Main sessions", lambda rs, d: f"{len([r for r in rs if r['kind'] == 'main']) / d:.1f}"),
+            ("Subagent runs", lambda rs, d: f"{len([r for r in rs if r['kind'] == 'sub']) / d:.1f}"),
+            ("Requests", lambda rs, d: f"{sum(r['n'] for r in rs) / d:.0f}"),
+            ("Tokens read as context", lambda rs, d: fmt(sum(r["ctx"] for r in rs) / d)),
+            ("Average context per request", lambda rs, d: fmt(sum(r["ctx"] for r in rs) / max(1, sum(r["n"] for r in rs)))),
+            ("Share read from cache", lambda rs, d: f"{100 * sum(r['read'] for r in rs) / max(1, sum(r['ctx'] for r in rs)):.0f}%"),
+            ("Output tokens", lambda rs, d: fmt(sum(r["out"] for r in rs) / d)))
+
+
+def baseline(rows):
+    """Plain summary of the before-period, for the installer."""
+    b = [r for r in rows if r["week"] == "before"]
+    if not b:
+        return f"No Claude Code sessions found in the {BEFORE_DAYS} days before {CHANGE:%d %b %Y}: savings will be estimated once there is data."
+    used = sum(r["ctx"] + r["out"] for r in b)
+    return (f"Your last {BEFORE_DAYS} days ({BEFORE[0]:%d %b} to {BEFORE[1] - timedelta(days=1):%d %b}): "
+            f"{len([r for r in b if r['kind'] == 'main'])} sessions, {sum(r['n'] for r in b):,} requests, {fm(used)} tokens "
+            f"({fm(used / BEFORE_DAYS)} a day). This is the baseline every report compares against.")
+
+
 def report(rows, now=None):
     now = now or datetime.now()
     by = defaultdict(lambda: {"before": [], "after": []})
     for r in rows:
         by[(r["kind"], r["ep"], r["fam"])][r["week"]].append(r)
     days = max(0, min(7, (now - AFTER[0]).days))
-    L = [f"# Token comparison: 7 days before vs 7 days after {CHANGE:%Y-%m-%d}", "",
+    L = [f"# Token comparison: {BEFORE_DAYS} days before vs 7 days after {CHANGE:%Y-%m-%d}", "",
          f"Run {now:%Y-%m-%d %H:%M}. Before {BEFORE[0]:%d %b} to {BEFORE[1] - timedelta(days=1):%d %b}; "
          f"after {AFTER[0]:%d %b} to {AFTER[1] - timedelta(days=1):%d %b} ({days} of 7 after-days complete).", "",
          "## Fixed context per session (the part the change affects)", "",
@@ -142,17 +167,11 @@ def report(rows, now=None):
           "**No after-week sessions yet.** The table fills in from the day after the change.",
           "A negative number means the first request got larger. Each row's estimate is its drop times its own request count,"
           " using the median drop and the low-end (p10) drop as the two ends of the range.", "",
-          "## Whole-week totals (follow workload, not just setup)", "",
-          "| | Before | After |", "|---|---|---|"]
+          "## Totals per day (follow workload, not just setup)", "",
+          f"| | Before, per day ({BEFORE_DAYS} days) | After, per day ({max(days, 1)} days) |", "|---|---|---|"]
     tot = {w: [r for r in rows if r["week"] == w] for w in ("before", "after")}
-    for label, fn in (("Main sessions", lambda rs: len([r for r in rs if r["kind"] == "main"])),
-                      ("Subagent runs", lambda rs: len([r for r in rs if r["kind"] == "sub"])),
-                      ("Requests", lambda rs: sum(r["n"] for r in rs)),
-                      ("Tokens read as context", lambda rs: fm(sum(r["ctx"] for r in rs))),
-                      ("Average context per request", lambda rs: fm(sum(r["ctx"] for r in rs) / max(1, sum(r["n"] for r in rs)))),
-                      ("Share read from cache", lambda rs: f"{100 * sum(r['read'] for r in rs) / max(1, sum(r['ctx'] for r in rs)):.0f}%"),
-                      ("Output tokens", lambda rs: fm(sum(r["out"] for r in rs)))):
-        L.append(f"| {label} | {fn(tot['before'])} | {fn(tot['after'])} |")
+    for label, fn in totals(fm):
+        L.append(f"| {label} | {fn(tot['before'], BEFORE_DAYS)} | {fn(tot['after'], max(days, 1))} |")
     if len(PROBE) == 2:
         L += ["", "## Controlled test (same prompt, fresh CLI session)", "",
               f"Before {PROBE[0]:,} tokens, after {PROBE[1]:,}: {PROBE[0] - PROBE[1]:,} fewer on the first request. One run each."]
@@ -171,6 +190,8 @@ def selftest():
     assert (d, lo, hi) == (3000, 3000, 3000), (d, lo, hi)
     text = report(rows, now=AFTER[1])
     assert "180.0k to 180.0k tokens" in text and "100%" in text, text  # 3,000 x 60 requests
+    assert f"| Requests | {60 / BEFORE_DAYS:.0f} | 9 |" in text, text  # per day: 60 over 30 days, 60 over 7
+    assert "6 sessions, 60 requests" in baseline(rows) and "No Claude Code sessions" in baseline([])
     print("selftest ok")
 
 
@@ -180,6 +201,10 @@ if __name__ == "__main__":
         sys.exit(0)
     rows = session_rows()
     os.makedirs(OUT, exist_ok=True)
+    if sys.argv[1:] == ["baseline"]:
+        rows = json.load(open(SNAP)) if os.path.exists(SNAP) else rows
+        print(baseline(rows))
+        sys.exit(0)
     if os.path.exists(SNAP):  # the frozen before-week wins, so later transcript clean-up cannot change it
         rows = json.load(open(SNAP)) + [r for r in rows if r["week"] == "after"]
     else:

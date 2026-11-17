@@ -43,7 +43,7 @@ You need the Claude app (or a Claude Code plan) and an internet connection. Ever
 5. **It asks before each kind of change, and says why:**
    - writing the rules file `~/.claude/CLAUDE.md` (it tells Claude when to use each tool). If you already have one, yours is kept and the kit's version is saved next to it as `CLAUDE.md.kit-new`;
    - adding the kit's hooks to `~/.claude/settings.json` (backed up first; nothing in it is removed or changed);
-   - scheduling the monthly token report.
+   - how often you want the token report: weekly, fortnightly, monthly or off.
 6. **It shows the full list and asks "Go ahead?"** Nothing has changed up to this point. Saying no stops cleanly.
 7. **It checks your computer for what the tools need** and offers to install anything missing, one at a time, with a plain explanation:
 
@@ -101,6 +101,7 @@ Pick the tiers you want; `--list` prints every tool.
 | `--install-missing` | `-InstallMissing` | Install missing prerequisites without asking |
 | `--caveman-mode lite` | `-CavemanMode lite` | Caveman strength: lite, full, ultra |
 | `--handoff 500k` | macOS only | Model pilot: when to offer a fresh chat (`auto`, `250k`, `500k`, `750k`, `never`) |
+| `--report week` | `-Report week` | Token report: `week`, `fortnight`, `month` (default) or `off` |
 | `--list` | `-List` | Print the catalogue and exit |
 
 ## What you can install
@@ -116,7 +117,7 @@ Pick the tiers you want; `--list` prints every tool.
 | core | Graphify | A plain-language overview of a project and its docs | uv |
 | core | Safe delete | Blocks `rm`; files go to `~/_trash/` instead | — |
 | core | Auto index hooks | Keeps the CodeGraph/Graphify maps fresh in the background | — |
-| core | Token measuring | Daily, weekly and monthly token reports | — |
+| core | Token measuring | A record of every turn's tokens, a 30-day baseline, and a weekly, fortnightly or monthly report | — |
 | core | Rules file + guides | Tells Claude when to use each tool you installed | 4 placeholders |
 | memory | Supermemory | Remembers decisions across chats | Supermemory account |
 | memory | Cognee (local) | Private knowledge map of your chats, on your computer; Claude and Codex can share it | Your Claude plan (no key) or an LLM API key (paid per use); Python 3.10+ |
@@ -137,7 +138,7 @@ Each tool has one job, and the rules file gives each one a trigger, so they do n
 - **Routing card and Model pilot** both deal with models. With Model pilot on, it alone picks the chat's model and offers the fresh chat; the routing card keeps only the rules for helper agents. Without Model pilot, the card's own rules apply (fresh chat around 250k tokens).
 - **Supermemory, Cognee and remember** are memory with different jobs: Supermemory for decisions and preferences across chats and devices; Cognee for a local knowledge map that Codex can share; remember for picking up where the last session left off. agentmemory was dropped: Supermemory already does its job.
 
-The monthly report lists any installed tool with no sign of use that month, so you can drop what you do not use.
+The token report lists any installed tool with no sign of use in its period, so you can drop what you do not use.
 
 Every key, where it goes, and what still works without it: [.env.example](.env.example).
 
@@ -157,7 +158,7 @@ A mod for Claude Code on macOS, written for this kit (MIT, in [`mods/model-pilot
 - **The kit's own scripts** go to `~/.local/bin` and `~/.claude/hooks`. A differing file is backed up to `*.bak-kit-<time>` first.
 - **Your own docs are never overwritten.** If `CLAUDE.md`, a guide or an agent already exists and differs, the kit's version lands next to it as `*.kit-new`.
 - **`~/.claude/settings.json` is merged, never replaced.** Backed up to `settings.json.bak-kit-<time>` first. Only missing hooks and env keys are added.
-- **Monthly report**: a launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.token-monthly.plist`) or a Windows scheduled task (`claude-setup-kit token-monthly`), only if you said yes.
+- **Token report**: a launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.token-report.plist`) or a Windows scheduled task (`claude-setup-kit token-report`) that checks daily at 09:00 and writes a report when your chosen period ends; nothing is scheduled if you chose off. A Stop hook (`token-ledger.py`) adds one line per finished turn to `~/.claude/cache/token-compare/ledger.jsonl`.
 - **A record** of what was installed in `~/.claude/kit/installed`; the doctor checks exactly that list.
 
 To undo a change: restore the `*.bak-kit-<time>` copy next to the file, remove the plugin with `claude plugin uninstall <name>`, and delete the launchd agent or scheduled task.
@@ -181,7 +182,11 @@ All from the author's own Mac on 2026-11-15. One machine, small samples.
 
 Measure your own: `python3 ~/.claude/hooks/token-scorecard.py 30`, and `python3 ~/.claude/hooks/token-compare.py` a week after installing.
 
-**Monthly report.** `token-monthly.py` runs at 09:00 on the 1st (launchd on macOS, Task Scheduler on Windows; no Claude tokens) and writes `~/.claude/cache/token-compare/monthly/YYYY-MM.md`; on macOS it also shows a notification. It reports tokens used, tokens saved and what you would have used without the kit. Saved has two parts, kept apart: **measured** (RTK's own count of shell output it cut; a floor) and **estimated** (how much smaller sessions start since install, per session type, times the month's requests). Five more tools get one line each, from `token-tools.py`, with measured and estimated kept in separate columns and none of it added to the totals (RTK and context-mode both trim shell output, so adding them would count some of it twice). **Caveman**: output tokens its own log attributes to a Caveman mode; no saving is claimed, because the log has no without-Caveman comparison. **context-mode**: bytes it kept out of context, from its own records (measured), with a token estimate beside it at 4 bytes per token. **CodeGraph** and **Graphify**: calls found in your transcripts and the size of what they returned; no saving is estimated, because nothing records what the searches and file reads they replaced would have cost. **model-pilot**: the number of model decisions in its own log and its estimated saving against the menu model, an estimate (the turn's real tokens repriced, minus the judge calls). A last line lists installed on-demand tools (context-mode, CodeGraph, Graphify, RTK, Model pilot, Model badge, Jev, mjudge, Deliberation, Grill Me) with no tool call, command or log line that month. Tools that run by hook every session are not judged. Run it by hand: `python3 ~/.claude/hooks/token-monthly.py 2026-12`.
+**Token report.** Three parts work together, all local, none of them using Claude tokens:
+
+1. **Baseline, at install.** The installer reads your Claude Code history for the 30 days before the install, freezes it, and shows it (sessions, requests, tokens, tokens a day). Every report compares against it.
+2. **A record of every turn.** A Stop hook (`token-ledger.py`, runs in the background, never blocks) writes one line per finished turn: requests, tokens read as context, output tokens, the model family, and what was saved in that turn: RTK's own count for that turn's shell commands (measured), the bytes context-mode kept out of context in that session (measured, turned into tokens at 4 bytes per token), and Model pilot's saving against the menu model (an estimate). A tool that is not installed shows as missing, never as 0.
+3. **The report**, weekly (Monday to Sunday), fortnightly or monthly, as you chose at install; change it any time with `python3 ~/.claude/hooks/token-report.py --set week|fortnight|month|off`. To see the last prompts one by one (used and saved per turn): `python3 ~/.claude/hooks/token-report.py --turns 20`. A job checks daily at 09:00 and writes `~/.claude/cache/token-compare/reports/<period>-<first day>.md` once a period has finished, so a Mac that was asleep catches up; on macOS a notification says it is ready. It shows tokens used, tokens saved and what you would have used without the kit. Saved has two parts, kept apart: **measured** (RTK's own count of shell output it cut; a floor) and **estimated** (how much smaller sessions start than in your 30-day baseline, per session type, times the period's requests). Then the per-turn record: turns, tokens used, tokens a turn, and the savings in those turns. Five more tools get one line each, from `token-tools.py`, with measured and estimated kept in separate columns and none of it added to the totals (RTK and context-mode both trim shell output, so adding them would count some of it twice). **Caveman**: output tokens its own log attributes to a Caveman mode; no saving is claimed, because the log has no without-Caveman comparison. **context-mode**: bytes it kept out of context, from its own records (measured), with a token estimate beside it at 4 bytes per token. **CodeGraph** and **Graphify**: calls found in your transcripts and the size of what they returned; no saving is estimated, because nothing records what the searches and file reads they replaced would have cost. **model-pilot**: the number of model decisions in its own log and its estimated saving against the menu model, an estimate (the turn's real tokens repriced, minus the judge calls). A last line lists installed on-demand tools (context-mode, CodeGraph, Graphify, RTK, Model pilot, Model badge, Jev, mjudge, Deliberation, Grill Me) with no tool call, command or log line that month. Tools that run by hook every session are not judged. Run it by hand: `python3 ~/.claude/hooks/token-report.py --period week 2026-11-09`, or `--period month 2026-11`.
 
 ## What it costs to run
 

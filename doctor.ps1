@@ -70,10 +70,12 @@ if (Has 'indexes') {
 }
 if (Has 'measure') {
   Selftest 'token-compare.py' { & $PY "$CL\hooks\token-compare.py" selftest }; Selftest 'token-daily.py' { & $PY "$CL\hooks\token-daily.py" selftest }
-  Selftest 'token-monthly.py' { & $PY "$CL\hooks\token-monthly.py" selftest }
-  schtasks /Query /TN 'claude-setup-kit token-monthly' *> $null
-  if (Test-Path "$CL\kit\no-monthly-schedule") { Pass 'monthly report not scheduled (your choice at install)' }
-  elseif ($LASTEXITCODE -eq 0) { Pass 'monthly token report scheduled (1st, 09:00)' } else { Fail 'monthly token report not scheduled: re-run install.ps1' }
+  Selftest 'token-report.py' { & $PY "$CL\hooks\token-report.py" selftest }; Selftest 'token-ledger.py' { & $PY "$CL\hooks\token-ledger.py" selftest }
+  Hook-On 'Stop' 'token-ledger.py' 'per-turn token ledger'
+  $per = if (Test-Path "$CL\kit\report-period") { (Get-Content "$CL\kit\report-period" -Raw).Trim() } else { 'month' }
+  schtasks /Query /TN 'claude-setup-kit token-report' *> $null
+  if ($per -eq 'off') { Pass 'token report off (your choice)' }
+  elseif ($LASTEXITCODE -eq 0) { Pass "token report: $per (daily check, 09:00)" } else { Fail 'token report not scheduled: re-run install.ps1' }
 }
 if (Has 'rules') {
   if (Test-Path "$CL\CLAUDE.md") { Pass '~\.claude\CLAUDE.md present' } else { Fail '~\.claude\CLAUDE.md missing' }

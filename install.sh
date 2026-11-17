@@ -7,6 +7,7 @@
 #   ./install.sh --only caveman,rtk   just these tools (dependencies are added)
 #   ./install.sh --list               print the catalogue and exit
 # Other options: --skip id,id  --caveman-mode lite|full|ultra  --handoff auto|250k|500k|750k|never
+#   --report week|fortnight|month|off   how often the token report runs (default month)
 #   --install-missing   install missing prerequisites (Homebrew, Node.js, uv, Claude Code CLI) without asking
 #
 # Never overwrites: settings.json is merged (backup first); your own CLAUDE.md, guides and agents are
@@ -22,7 +23,7 @@ TIERS_ALL="core memory routing judge deliberation"
 SELECTED=" "
 TODO=""
 FAILED=""
-MODE=ask; TIERS=""; ONLY=""; SKIP=""; HANDOFF=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
+MODE=ask; TIERS=""; ONLY=""; SKIP=""; HANDOFF=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
 TTY=0; { : </dev/tty; } 2>/dev/null && TTY=1   # a keyboard to answer questions on
 
 say()  { printf '%s\n' "$*"; }
@@ -52,6 +53,7 @@ while [ $# -gt 0 ]; do
     --skip) val "$1" "${2:-}"; SKIP=$(csv "$2"); shift ;;
     --caveman-mode) val "$1" "${2:-}"; CAVEMODE=$2; shift ;;
     --handoff) val "$1" "${2:-}"; HANDOFF=$2; shift ;;
+    --report) val "$1" "${2:-}"; REPORT=$2; shift ;;
     --install-missing) INSTALL_MISSING=1 ;;
     --list) awk -F'|' '!/^#/ {printf "%-15s %-13s %s\n    %s\n", $1, $2, $3, $5}' "$CAT"; exit 0 ;;
     -h|--help) usage ;;
@@ -176,21 +178,28 @@ if has rules; then
   [ -f "$CL/CLAUDE.md" ] && say "You already have a CLAUDE.md: it is kept as it is, and the kit's version is saved next to it as CLAUDE.md.kit-new for you to merge."
   ask "Write the rules file and guides?" y || { drop rules; info "rules file left out"; }
 fi
-for id in rtk safety indexes routing cognee jev; do
+for id in rtk safety indexes routing cognee jev measure; do
   has $id || continue
   say ""
   say "Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command)."
-  say "RTK, safe delete, auto indexes and the routing card only work through them. They are added to"
+  say "RTK, safe delete, auto indexes, the routing card and the per-turn token record only work through them. They are added to"
   say "~/.claude/settings.json: the file is backed up first, nothing in it is removed or changed, only missing entries are added."
   ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
   break
 done
-if has measure; then
-  say ""
-  say "Monthly report: on the 1st of each month at 09:00 your Mac writes a token report (used, saved, would-have-used)"
-  say "and shows a notification. It reads local files only and uses no Claude tokens."
-  ask "Schedule the monthly report?" y || { DO_SCHED=0; info "monthly report not scheduled (run it by hand: python3 ~/.claude/hooks/token-monthly.py)"; }
+if has measure && [ -z "$REPORT" ]; then
+  REPORT=month
+  if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
+    say ""
+    say "Token report: how much Claude used, how much the kit saved, and what you would have used without it."
+    say "It compares against your own last 30 days before this install, and adds up a small record written after"
+    say "every turn. It reads local files only and uses no Claude tokens; a notification says when one is ready."
+    say "  1. Weekly (every Monday)   2. Fortnightly (every second Monday)   3. Monthly (on the 1st)   4. Off"
+    printf '  How often? [3]: '; read -r a </dev/tty || a=""
+    case "$a" in 1) REPORT=week ;; 2) REPORT=fortnight ;; 4) REPORT=off ;; *) REPORT=month ;; esac
+  fi
 fi
+case "$REPORT" in ''|week|fortnight|month) ;; off) DO_SCHED=0 ;; *) info "Report choice '$REPORT' not known: using month"; REPORT=month ;; esac
 if has model-pilot && [ "$(uname -s)" != Darwin ]; then drop model-pilot; info "Model pilot left out: it is macOS only"; fi
 if has model-badge && [ "$(uname -s)" != Darwin ]; then drop model-badge; info "Model badge left out: it is macOS only for now"; fi
 if has model-pilot; then
@@ -415,33 +424,41 @@ if has indexes; then
   copy_file "$KIT/files/hooks/kit-timeout" "$CL/hooks/kit-timeout" exec replace
 fi
 if has measure; then
-  for f in token-scorecard.py token-compare.py token-daily.py token-monthly.py token-tools.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
-  mkdir -p "$CL/cache/token-compare/monthly"
+  for f in token-scorecard.py token-compare.py token-daily.py token-report.py token-tools.py token-ledger.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
+  mkdir -p "$CL/cache/token-compare/reports"
   [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
-  # Freeze the week before install now, while those transcripts still exist (Claude Code prunes old ones).
-  [ -f "$CL/cache/token-compare/before-week.json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (week before install)"; }
-  # Monthly report: launchd runs token-monthly.py at 09:00 on the 1st (a missed run fires at next wake). No Claude tokens.
-  if [ "$DO_SCHED" = 0 ]; then touch "$CL/kit/no-monthly-schedule"; else rm -f "$CL/kit/no-monthly-schedule"
-  LA="$HOME/Library/LaunchAgents"; LBL=com.claude-setup-kit.token-monthly; PL="$LA/$LBL.plist"; mkdir -p "$LA"
+  # Freeze the 30 days before install now, while those transcripts still exist (Claude Code prunes old ones).
+  [ -f "$CL/cache/token-compare/before-week.json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (30 days before install)"; }
+  b=$(python3 "$CL/hooks/token-compare.py" baseline 2>/dev/null) && [ -n "$b" ] && info "$b"
+  python3 "$CL/hooks/token-report.py" --set "${REPORT:-month}" >/dev/null && ok "token report: ${REPORT:-month} (change any time: python3 ~/.claude/hooks/token-report.py --set week|fortnight|month|off)"
+  # A daily 09:00 job; the script writes a report only when a chosen period has finished and has none yet,
+  # so a Mac that was asleep catches up at the next run. No Claude tokens.
+  LA="$HOME/Library/LaunchAgents"; OLD="$LA/com.claude-setup-kit.token-monthly.plist"
+  if [ -f "$OLD" ]; then  # earlier kit versions: monthly job under another name
+    [ "$HOME" = "$(eval echo "~$(id -un)")" ] && launchctl bootout "gui/$(id -u)/com.claude-setup-kit.token-monthly" >/dev/null 2>&1
+    mv "$OLD" "$OLD.bak-kit-$TS" && ok "old monthly job replaced (kept as $(short "$OLD").bak-kit-$TS)"
+  fi
+  if [ "$DO_SCHED" = 0 ]; then info "token report off: nothing scheduled (run it by hand: python3 ~/.claude/hooks/token-report.py)"; else
+  LBL=com.claude-setup-kit.token-report; PL="$LA/$LBL.plist"; mkdir -p "$LA"
   cat > "$PL.tmp" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$LBL</string>
-  <key>ProgramArguments</key><array><string>$(command -v python3)</string><string>$CL/hooks/token-monthly.py</string><string>--notify</string></array>
-  <key>StartCalendarInterval</key><dict><key>Day</key><integer>1</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-  <key>StandardOutPath</key><string>$CL/cache/token-compare/monthly/launchd.log</string>
-  <key>StandardErrorPath</key><string>$CL/cache/token-compare/monthly/launchd.log</string>
+  <key>ProgramArguments</key><array><string>$(command -v python3)</string><string>$CL/hooks/token-report.py</string><string>--scheduled</string><string>--notify</string></array>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>$CL/cache/token-compare/reports/launchd.log</string>
+  <key>StandardErrorPath</key><string>$CL/cache/token-compare/reports/launchd.log</string>
 </dict></plist>
 PLIST
-  if cmp -s "$PL.tmp" "$PL"; then rm -f "$PL.tmp"; ok "monthly token report already scheduled"
+  if cmp -s "$PL.tmp" "$PL"; then rm -f "$PL.tmp"; ok "token report job already scheduled (daily check, 09:00)"
   else
     mv "$PL.tmp" "$PL"
     # launchd is per user, not per HOME: only load it for the real home, never for a test HOME.
     if [ "$HOME" = "$(eval echo "~$(id -un)")" ]; then
       launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
-      launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "monthly token report scheduled (1st of each month, 09:00)" || fail "launchctl bootstrap $PL"
-    else info "test HOME: monthly schedule written to $PL, not loaded"; fi
+      launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "token report job scheduled (daily check at 09:00; writes a report when your period ends)" || fail "launchctl bootstrap $PL"
+    else info "test HOME: report job written to $PL, not loaded"; fi
   fi
   fi
 fi

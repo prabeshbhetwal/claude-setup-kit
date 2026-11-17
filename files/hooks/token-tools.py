@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Per-tool lines for the monthly token report (token-monthly.py loads this). Measured and estimated stay in separate columns.
+"""Per-tool lines for the token report (token-report.py loads this). Measured and estimated stay in separate columns.
 
   python3 ~/.claude/hooks/token-tools.py selftest
 

@@ -87,12 +87,16 @@ fi
 if has measure; then
   selftest python3 "$CL/hooks/token-compare.py" selftest
   selftest python3 "$CL/hooks/token-daily.py" selftest
-  selftest python3 "$CL/hooks/token-monthly.py" selftest
-  PL="$HOME/Library/LaunchAgents/com.claude-setup-kit.token-monthly.plist"
-  if [ -f "$CL/kit/no-monthly-schedule" ]; then pass "monthly report not scheduled (your choice at install)"
-  elif [ ! -f "$PL" ]; then fail "monthly token report not scheduled ($PL missing): re-run install.sh"
-  elif launchctl print "gui/$(id -u)/com.claude-setup-kit.token-monthly" >/dev/null 2>&1; then pass "monthly token report scheduled (1st, 09:00)"
-  else warn "monthly report plist exists but is not loaded: launchctl bootstrap gui/$(id -u) $PL"; fi
+  selftest python3 "$CL/hooks/token-report.py" selftest
+  selftest python3 "$CL/hooks/token-ledger.py" selftest
+  hook_on Stop "token-ledger.py" "per-turn token ledger"
+  [ -f "$CL/cache/token-compare/ledger.jsonl" ] && pass "ledger has $(wc -l < "$CL/cache/token-compare/ledger.jsonl" | tr -d ' ') turns" || warn "ledger empty so far (it fills after your next Claude turn)"
+  per=$(cat "$CL/kit/report-period" 2>/dev/null || echo month)
+  PL="$HOME/Library/LaunchAgents/com.claude-setup-kit.token-report.plist"
+  if [ "$per" = off ]; then pass "token report off (your choice; python3 ~/.claude/hooks/token-report.py --set month to turn on)"
+  elif [ ! -f "$PL" ]; then fail "token report not scheduled ($PL missing): re-run install.sh"
+  elif launchctl print "gui/$(id -u)/com.claude-setup-kit.token-report" >/dev/null 2>&1; then pass "token report: $per (daily check, 09:00)"
+  else warn "token report job exists but is not loaded: launchctl bootstrap gui/$(id -u) $PL"; fi
 fi
 if has rules; then
   [ -f "$CL/CLAUDE.md" ] && pass "~/.claude/CLAUDE.md present" || fail "~/.claude/CLAUDE.md missing"

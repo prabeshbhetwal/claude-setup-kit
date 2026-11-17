@@ -108,5 +108,17 @@
         "match": "jev-hooks.py\" subagent-stop"
       }
     ]
+  },
+  "measure": {
+    "hooks": [
+      {
+        "event": "Stop",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/token-ledger.py\"",
+        "async": true,
+        "timeout": 30,
+        "match": "token-ledger.py"
+      }
+    ]
   }
 }
