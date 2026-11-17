@@ -144,6 +144,8 @@ Every key, where it goes, and what still works without it: [.env.example](.env.e
 
 ## Model pilot
 
+Anthropic's own guidance on picking a model and effort, digested from 14 sources and two videos: [docs/model-choice-guide.md](docs/model-choice-guide.md).
+
 A mod for Claude Code on macOS, written for this kit (MIT, in [`mods/model-pilot`](mods/model-pilot/README.md)). Before each prompt a small, fast judge decides which model tier (Haiku, Sonnet, Opus, Fable) and effort the task needs, and Claude Code runs the turn on that. A row above the prompt shows the pick and the model that actually ran, read from the session transcript. Your own choice always wins: name a model in the prompt, or pick one in the menu, and the pilot leaves it alone.
 
 - **Judges, in order:** Jev if you have it (about half a second), then Haiku (about two seconds), then built-in rules. Without Jev you lose nothing but speed. Privacy mode uses the rules only.
