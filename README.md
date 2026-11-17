@@ -57,7 +57,7 @@ You need the Claude app (or a Claude Code plan) and an internet connection. Ever
 
    Say no to any of them and the installer stops, prints the exact command, and changes nothing of the kit.
 8. **It installs.** Third-party tools come from their own official sources (Claude Code plugin marketplaces, npm, PyPI, Homebrew/winget); this repo bundles none of them. The kit's own small scripts go to `~/.local/bin` and `~/.claude/hooks`.
-8. **It prints a short numbered to-do list** of the things only you can do: restart Claude, run the doctor, sign in or add keys for the tools you picked, fill four placeholders in `CLAUDE.md`.
+9. **It prints a short numbered to-do list** of the things only you can do: restart Claude, run the doctor, sign in or add keys for the tools you picked, fill four placeholders in `CLAUDE.md`.
 
 ## After the install
 
@@ -116,7 +116,7 @@ Pick the tiers you want; `--list` prints every tool.
 | core | CodeGraph | A map of your code: where things are, what calls what | Node.js |
 | core | Graphify | A plain-language overview of a project and its docs | uv |
 | core | Safe delete | Blocks `rm`; files go to `~/_trash/` instead | — |
-| core | Auto index hooks | Keeps the CodeGraph/Graphify maps fresh in the background (git repos, and folders that already have an index). Also "index first": in an indexed repo a code search with Grep is held until CodeGraph has been asked once that session (released after 2 reminders, so it never traps), Read and Glob get a one-time hint, and architecture questions get pointed at the Graphify report. Decisions log to `~/.claude/cache/index-first.jsonl` | — |
+| core | Auto index hooks | Keeps the CodeGraph/Graphify maps fresh in the background, and nudges Claude to ask them before searching your code | — |
 | core | Token measuring | A record of every turn's tokens, a 30-day baseline, and a weekly, fortnightly or monthly report | — |
 | core | Rules file + guides | Tells Claude when to use each tool you installed | 4 placeholders |
 | guard | Deny rules | Claude can never read `.env`, `~/.ssh`, `~/.aws`, or run `git reset --hard`, `git clean` or a force push, in any permission mode | — |
@@ -133,13 +133,7 @@ Pick the tiers you want; `--list` prints every tool.
 | deliberation | Deliberation | Other AI models (GPT, Gemini, Grok, OpenRouter) judge a plan: a second opinion or a debate | One provider account |
 | deliberation | Grill Me | `/grill-me`: Claude questions you about your own plan, one hard question at a time; `/grill-with-docs` also records decisions | Node.js |
 
-Each tool has one job, and the rules file gives each one a trigger, so they do not compete:
-
-- **RTK and context-mode** both trim command output. RTK shortens every command automatically; context-mode takes the big outputs and analysis off to the side.
-- **CodeGraph and Graphify** both map a project. CodeGraph answers "where is this function, what calls it"; Graphify answers "how does this project fit together".
-- **Grill Me and Deliberation** both test a plan. Grill Me questions you about your project; Deliberation asks other models to judge the plan. Use Grill Me first, then Deliberation for one-way, high-stakes calls.
-- **Routing card and Model pilot** both deal with models. With Model pilot on, it alone picks the chat's model and offers the fresh chat; the routing card keeps only the rules for helper agents. Without Model pilot, the card's own rules apply (fresh chat around 250k tokens).
-- **Supermemory, Cognee and remember** are memory with different jobs: Supermemory for decisions and preferences across chats and devices; Cognee for a local knowledge map that Codex can share; remember for picking up where the last session left off. agentmemory was dropped: Supermemory already does its job.
+Tools that look alike do different jobs, and the rules file tells Claude when to use each, so they do not compete.
 
 The token report lists any installed tool with no sign of use in its period, so you can drop what you do not use.
 
@@ -150,7 +144,6 @@ Every key, where it goes, and what still works without it: [.env.example](.env.e
 The rule behind this group: **can it be taken back?** Code edits can (git), so Claude does them freely. Leaked secrets, wiped work and force-pushed history can't, so they become deny rules. Claude Code applies deny rules in every permission mode, auto and bypass included.
 
 - **Deny rules** are added to `permissions.deny` in `~/.claude/settings.json`; your own rules are kept. Add more there yourself (for example `"Read(./secrets/**)"`). Only the Bash and file tools are covered: on Windows the PowerShell tool is not.
-- **Outgoing data** (messages, uploads) is better left to auto mode, which checks each action, than to a fixed rule list.
 - **Bash sandbox:** off unless you tick it. Some installers and tools that write outside the project will ask or fail inside it; `/sandbox` changes it any time.
 - **Done checks** do nothing until a project opts in. Add an executable `.claude/verify` to a project, for example:
 
@@ -164,19 +157,16 @@ The rule behind this group: **can it be taken back?** Code edits can (git), so C
 
 ### For teams: managed settings
 
-An admin can set defaults for everyone in `managed-settings.json` (see Claude Code's [settings docs](https://code.claude.com/docs/en/settings)): `model` (the default), `availableModels` (which models people may pick), `effortLevel` and `maxEffortLevel`, and `permissions.deny`. Anthropic's "Maximizing Value from Claude Code" webinar calls changing a team default away from the biggest model the highest-leverage cost fix.
+An admin can set defaults for everyone in `managed-settings.json` (see Claude Code's [settings docs](https://code.claude.com/docs/en/settings)): `model` (the default), `availableModels` (which models people may pick), `effortLevel` and `maxEffortLevel`, and `permissions.deny`.
 
 ## Model pilot
 
-Anthropic's own guidance on picking a model and effort, digested from 14 sources and two videos: [docs/model-choice-guide.md](docs/model-choice-guide.md).
+A mod for Claude Code on macOS, in [`mods/model-pilot`](mods/model-pilot/README.md). Before each prompt a small, fast judge decides which model (Haiku, Sonnet, Opus, Fable) and effort the task needs, and Claude Code runs the turn on that. A row above the prompt shows the pick and the model that actually ran. Your own choice always wins: name a model in the prompt, or pick one in the menu, and the pilot leaves it alone.
 
-A mod for Claude Code on macOS, written for this kit (MIT, in [`mods/model-pilot`](mods/model-pilot/README.md)). Before each prompt a small, fast judge decides which model tier (Haiku, Sonnet, Opus, Fable) and effort the task needs, and Claude Code runs the turn on that. A row above the prompt shows the pick and the model that actually ran, read from the session transcript. Your own choice always wins: name a model in the prompt, or pick one in the menu, and the pilot leaves it alone.
-
-- **Judges, in order:** Jev if you have it (about half a second), then Haiku (about two seconds), then built-in rules. Without Jev you lose nothing but speed. Privacy mode uses the rules only.
-- **Measured on 124 labelled prompts:** it picked a model that was too weak in 1.6% of cases with Jev and 2.4% with Haiku. Full tables are in the mod's README.
-- **Where a job is cheapest to run.** Doing it in the chat you are in has no start-up cost, but every step re-reads the whole chat. A helper agent loads its own context once: about 14k tokens for the kit's lean agents (`haiku-lean`, `sonnet-lean`), about 72k for an all-tools agent. A new session loads about 120k. So a few lookups are cheaper in place, and a big, tool-heavy job is cheaper in a lean helper. The pilot says so when it matters, and `/pilot cost` shows the figures for the chat you are in. These sizes were measured on the author's setup; yours will differ.
+- **Judges, in order:** Jev if you have it, then Haiku, then built-in rules. Privacy mode uses the rules only.
 - **Fresh chat offer.** At a chat size you choose (the installer asks: auto, 250k, 500k, 750k or never) it offers to write a summary so you can continue in a new chat. It only offers.
 - **Only one model selector at a time.** If another one is on, the installer asks before switching it off.
+- **Accuracy, cost and limits:** [`mods/model-pilot/README.md`](mods/model-pilot/README.md).
 
 ## What it changes on your computer
 
@@ -188,32 +178,26 @@ A mod for Claude Code on macOS, written for this kit (MIT, in [`mods/model-pilot
 - **A record** of what was installed in `~/.claude/kit/installed`; the doctor checks exactly that list.
 
 To undo a change: restore the `*.bak-kit-<time>` copy next to the file, remove the plugin with `claude plugin uninstall <name>`, and delete the launchd agent or scheduled task.
+## Token report
 
-## Measured numbers (from the author's setup, not a guarantee for yours)
+The installer records your last 30 days of Claude Code use as a baseline, then a hook writes one line per finished turn: tokens used and tokens saved. A report arrives weekly, fortnightly or monthly (your choice at install; off is allowed), and a macOS notification says when it is ready. Everything runs locally and uses no Claude tokens.
 
-All from the author's own Mac on 2026-11-15. One machine, small samples.
+- Change the period: `python3 ~/.claude/hooks/token-report.py --set week|fortnight|month|off`
+- See the last prompts one by one: `python3 ~/.claude/hooks/token-report.py --turns 20`
+- Your own numbers over 30 days: `python3 ~/.claude/hooks/token-scorecard.py 30`
 
-| What | Before | After | Note |
-|---|---|---|---|
-| First request of a fresh `claude -p` session (Haiku, same prompt) | 70,728 tokens | 69,136 tokens | −1,592 after removing redundant skills, agents and commands; one run each |
-| `/context` total | 40.7k | 39.5k | Same trim |
-| Skill-list entries | 763 | 651 | Same trim; 86 skills got their descriptions back |
-| Helper agent start-up cost: all-tools agent vs `haiku-lean` | ~72k | ~14k | Why the kit ships lean agents |
-| Delegating a small 3-lookup job to a cheaper model vs doing it in place | ≈ same | ≈ same | **No saving.** The main chat's own context dominates. Savings come from big tool-heavy helper jobs |
+How it counts, and what is measured versus estimated: [docs/token-report.md](docs/token-report.md). The author's own numbers: [docs/measurements.md](docs/measurements.md).
 
-**Not measured:**
-- Per-tool savings for RTK, context-mode, Caveman, CodeGraph or Graphify in isolation. They are included because they cut output size by design, not because each one was benchmarked.
-- The effect of the 15 Nov 2026 trim on real weekly usage. The before/after comparison (`token-compare.py`) has no after-week data until 23 Nov 2026.
-- The connector-list saving in the desktop app (an **estimate** of about 3k tokens per session).
+## Weekly setup scorecard and house rules
 
-Measure your own: `python3 ~/.claude/hooks/token-scorecard.py 30`, and `python3 ~/.claude/hooks/token-compare.py` a week after installing.
+Every Monday at 08:15 a job scores the last week of your setup (cost per turn, start-up load, corrections, tool errors, hook health) against your own 4-week median and writes a short report to `~/.claude/monitor/reports/`. It also proposes **house rules** from your own words in past chats, for example "never make UI look AI-generated". Nothing becomes a rule until you approve it:
 
-**Token report.** Three parts work together, all local, none of them using Claude tokens:
+```
+python3 ~/.claude/monitor/bin/house-rules.py review
+python3 ~/.claude/monitor/bin/house-rules.py approve <id>
+```
 
-1. **Baseline, at install.** The installer reads your Claude Code history for the 30 days before the install, freezes it, and shows it (sessions, requests, tokens, tokens a day). Every report compares against it.
-2. **A record of every turn.** A Stop hook (`token-ledger.py`, runs in the background, never blocks) writes one line per finished turn: requests, tokens read as context, output tokens, the model family, and what was saved in that turn: RTK's own count for that turn's shell commands (measured), the bytes context-mode kept out of context in that session (measured, turned into tokens at 4 bytes per token), and Model pilot's saving against the menu model (an estimate). A tool that is not installed shows as missing, never as 0.
-3. **The report**, weekly (Monday to Sunday), fortnightly or monthly, as you chose at install; change it any time with `python3 ~/.claude/hooks/token-report.py --set week|fortnight|month|off`. To see the last prompts one by one (used and saved per turn): `python3 ~/.claude/hooks/token-report.py --turns 20`. A job checks daily at 09:00 and writes `~/.claude/cache/token-compare/reports/<period>-<first day>.md` once a period has finished, so a Mac that was asleep catches up; on macOS a notification says it is ready. It shows tokens used, tokens saved and what you would have used without the kit. Saved has two parts, kept apart: **measured** (RTK's own count of shell output it cut; a floor) and **estimated** (how much smaller sessions start than in your 30-day baseline, per session type, times the period's requests). Then the per-turn record: turns, tokens used, tokens a turn, and the savings in those turns. Five more tools get one line each, from `token-tools.py`, with measured and estimated kept in separate columns and none of it added to the totals (RTK and context-mode both trim shell output, so adding them would count some of it twice). **Caveman**: output tokens its own log attributes to a Caveman mode; no saving is claimed, because the log has no without-Caveman comparison. **context-mode**: bytes it kept out of context, from its own records (measured), with a token estimate beside it at 4 bytes per token. **CodeGraph** and **Graphify**: calls found in your transcripts and the size of what they returned; no saving is estimated, because nothing records what the searches and file reads they replaced would have cost. **model-pilot**: the number of model decisions in its own log and its estimated saving against the menu model, an estimate (the turn's real tokens repriced, minus the judge calls). A last line lists installed on-demand tools (context-mode, CodeGraph, Graphify, RTK, Model pilot, Model badge, Jev, mjudge, Deliberation, Grill Me) with no tool call, command or log line that month. Tools that run by hook every session are not judged. Run it by hand: `python3 ~/.claude/hooks/token-report.py --period week 2026-11-09`, or `--period month 2026-11`.
-4. **Setup scorecard and house rules** (`~/.claude/monitor`, design in [docs/setup-monitor-design.md](docs/setup-monitor-design.md)). Every Monday at 08:15 a launchd job (`com.claude-setup-kit.setup-monitor`) scores the last week on 36 cost, quality and house-rule markers (cost per turn and per work session, start-up load, corrections, tool errors, test pass rate, rework commits, hook health), beside their 4-week median, and writes `reports/week-<W>.md` and `reports/trend-<date>.md`. Log a setup change with `python3 ~/.claude/monitor/bin/setup-monitor.py note "what changed"` so its week can be judged. The same job proposes house rules from your own words in past chats; nothing becomes a rule until you run `python3 ~/.claude/monitor/bin/house-rules.py review` then `approve <id>`. Approved rules come back through the `house-rules-recall.py` prompt hook only when they fit the prompt (about 35-60 tokens when they do, silent otherwise).
+Approved rules come back only when they fit the prompt, and are silent otherwise. Design: [docs/setup-monitor-design.md](docs/setup-monitor-design.md).
 
 ## What it costs to run
 
@@ -225,17 +209,11 @@ Measure your own: `python3 ~/.claude/hooks/token-scorecard.py 30`, and `python3 
 | judge | TypeSafe: paid account (pricing not checked). Gemini: free tier available; free-tier inputs may be used for training |
 | deliberation | Each second opinion uses that provider's tokens or plan (ChatGPT/Codex, Gemini, xAI, OpenRouter) |
 
-Every hook also adds a little latency. The Jev shadow hooks are async and fail open. `jev-gate` is the exception: it runs before every Skill call, synchronously, with a 20 s timeout, and adds one verdict line to context.
-
 ## Known limits
 
 - **Tested on macOS only.** The Windows installer (`install.ps1`) has not been run on Windows yet. Linux is not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
-- **The model router saved nothing on a small job** (see Measured numbers). Routing pays off only when large, tool-heavy work goes to lean helpers.
-- **Trim savings are unmeasured until 23 Nov 2026.**
-- **Model pilot is macOS only and adds a short wait.** A judged prompt waits for the judge before its first token: about half a second with Jev, about two seconds with Haiku. Follow-ups and prompts where you chose the model are not judged. Its savings are estimates, and only one model selector can be on at a time. Accuracy, method and limits: [`mods/model-pilot/README.md`](mods/model-pilot/README.md).
-- **Jev shadow hooks only log.** They write to `~/.claude/jev/decisions.jsonl` and never block or inject. `jev-gate` (before Skill calls) does add a verdict line and can delay a Skill call by up to 20 s.
-- **RTK's hook gets rtk's full path** at install time, because Claude Code's hook PATH may not include `~/.local/bin` or Homebrew. If you move rtk, re-run `install.sh`. Other tools (`trashmv`, `jev`, `codegraph`, `graphify`) live in `~/.local/bin`, which must be on your PATH.
-- **Index hooks skip small repos.** They only index git repos with 10 or more source files, and never your home folder.
+- **Model pilot is macOS only and adds a short wait.** A judged prompt waits for the judge before its first token. Follow-ups and prompts where you chose the model are not judged. Its savings are estimates.
+- **Index hooks skip small repos.** They only build indexes for git repos with 10 or more source files, and never for your home folder.
 - **Licences of the installed tools differ.** context-mode is Elastic-2.0, so it cannot be offered as a managed service. RTK's default build includes a BUSL-1.1 engine, free for your own use; `RTK_EDITION=oss` gives the Apache-2.0-only build. remember uses a community licence with no commercial redistribution. The rest are MIT or Apache-2.0.
 
 ## Licences
@@ -257,21 +235,6 @@ This repo: MIT ([LICENSE](LICENSE)). Installed from their own sources:
 | Deliberation | `antonbabenko/agent-plugins` | MIT |
 | Grill Me (`grill-me`, `grilling`, `grill-with-docs`) | `mattpocock/skills`, fetched with `npx skills` | MIT |
 | Model pilot, Model badge | this repo, `mods/` | MIT |
-
-## Files
-
-```
-install.sh        macOS installer (guided; idempotent)
-install.ps1       Windows installer (same flow and options)
-doctor.sh         macOS check of what was installed; --quick skips the MCP check
-doctor.ps1        Windows check; -Quick skips the MCP check
-scan.sh           secret / personal-data scan over what git would publish
-mods/             Model pilot and Model badge: Claude Code mods, with their tests (and the pilot's evaluation sets)
-pack-private.sh   no longer used by the installers
-.env.example      every key, where it goes, what works without it
-lib/              tool catalogue, hook fragments, settings merger
-files/            the kit's own scripts, hooks, agents, guides and CLAUDE.md template
-```
 
 ## Contributing
 
