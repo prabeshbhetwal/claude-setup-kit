@@ -117,14 +117,16 @@ export function decide(i: DecideInput): Decision {
       required = up
     }
   }
-  // A small model over a very long conversation is where it slips.
-  if (required === 'haiku' && i.contextTokens > 200_000) {
+  // Haiku over 100k prompt tokens pays its long-prompt rate (5x) and slips on long context.
+  if (required === 'haiku' && i.contextTokens > 100_000) {
     required = 'sonnet'
-    reason = `${reason} (long context: haiku raised to sonnet)`
+    reason = `${reason} (over 100k tokens: haiku raised to sonnet)`
   }
 
+  // Haiku at low skips searches on long prompts (Anthropic): the pilot asks it for medium at least.
+  const judged: Effort = required === 'haiku' && v.effort === 'low' ? 'medium' : v.effort
   const effort: Effort | 'max' | undefined =
-    i.explicit.effort ?? (i.isEffortPinned ? undefined : v.effort)
+    i.explicit.effort ?? (i.isEffortPinned ? undefined : judged)
 
   if (i.explicit.tier) {
     return { tier: i.explicit.tier, effort, required, source: 'explicit', reason: `you named ${i.explicit.tier}`, confidence: 1 }

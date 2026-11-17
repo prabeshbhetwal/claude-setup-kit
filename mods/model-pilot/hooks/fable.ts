@@ -26,7 +26,8 @@ export function fableQuestion(d: Decision, fableUsd: number, opusUsd: number): s
   return [
     `Model pilot would run this prompt on Fable: ${d.reason}.`,
     `Effort ${effort}: ${WHY_EFFORT[effort]}.`,
-    `Estimated cost of this turn: about ${usd(fableUsd)} on Fable, ${usd(opusUsd)} on Opus. Run it on Fable?`,
+    `Estimated cost of this turn: about ${usd(fableUsd)} on Fable, ${usd(opusUsd)} on Opus (on some plans Fable draws on usage credits).`,
+    'Run it on Fable?',
   ].join(' ')
 }
 

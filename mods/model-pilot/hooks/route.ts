@@ -203,7 +203,8 @@ export async function settle($: EngineInterface, o: Options, f: PilotFlags, rec:
     source,
     explicit: rec.explicit,
     menuTier,
-    isModelPinned: now.isModelPinned,
+    // opusplan (Opus plans, Sonnet builds) is the person's own routing: the model stays theirs.
+    isModelPinned: now.isModelPinned || /opusplan/i.test(`${e.model} ${await $.session.model().catch(() => '')}`),
     isEffortPinned: now.isEffortPinned,
     ...cache,
     lowerStreak,

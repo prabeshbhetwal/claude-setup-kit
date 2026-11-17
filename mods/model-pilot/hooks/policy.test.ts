@@ -38,7 +38,7 @@ test('model ids and aliases map to tiers', async () => {
 test('a cold conversation runs on the required tier', async () => {
   const d = decide(base({ verdict: verdict('haiku', 0.9, 'low') }))
   expect(d.tier).toBe('haiku')
-  expect(d.effort).toBe('low')
+  expect(d.effort).toBe('medium') // Haiku never runs at low
   expect(d.required).toBe('haiku')
 })
 
@@ -122,7 +122,7 @@ test('a model named in the prompt wins over everything', async () => {
 test('a menu pick is left alone: model pinned keeps the model, effort pinned keeps the effort', async () => {
   const model = decide(base({ verdict: verdict('haiku', 0.9, 'low'), isModelPinned: true }))
   expect(model.tier).toBe(undefined)
-  expect(model.effort).toBe('low')
+  expect(model.effort).toBe('medium') // haiku-level job: medium at least
   expect(model.source).toBe('pinned')
   const effort = decide(base({ verdict: verdict('haiku', 0.9, 'low'), isEffortPinned: true }))
   expect(effort.tier).toBe('haiku')
@@ -244,4 +244,12 @@ test('turn cost follows effort: more thinking is dearer on the same tier', async
   const i = { contextTokens: 100_000, warm: {}, now: 0, cacheTtlMs: HOUR }
   expect(estTurnCost('fable', 'opus', i, 1, 'low') < estTurnCost('fable', 'opus', i, 1, 'xhigh')).toBe(true)
   expect(estTurnCost('sonnet', 'sonnet', i, 1, 'xhigh') < estTurnCost('opus', 'sonnet', i, 1, 'low')).toBe(true)
+})
+
+test('Anthropic guidance: haiku never at low or past 100k tokens; the warm-tier rule never drops into low', async () => {
+  expect(decide(base({ verdict: verdict('haiku', 0.9, 'low'), contextTokens: 120_000 })).required).toBe('sonnet')
+  const warm = { opus: { at: 10 * HOUR - 60_000, tokens: 150_000 } }
+  const d = decide(base({ verdict: verdict('sonnet', 0.9, 'medium'), contextTokens: 150_000, warm }))
+  expect(d.tier).toBe('opus')
+  expect(d.effort).toBe('medium')
 })

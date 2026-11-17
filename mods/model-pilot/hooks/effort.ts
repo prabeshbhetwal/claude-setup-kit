@@ -21,5 +21,9 @@ const ORDER: readonly Effort[] = ['low', 'medium', 'high', 'xhigh']
 export const outPerStep = (tier: Tier, effort: Effort | 'max' | undefined): number =>
   OUT_PER_STEP[tier][effort === 'max' ? 'xhigh' : effort ?? 'medium']
 
-/** One effort level lower, never under low: what a stronger model needs for the same job. */
-export const effortBelow = (e: Effort): Effort => ORDER[Math.max(0, ORDER.indexOf(e) - 1)] ?? 'low'
+/**
+ * One effort level lower, never under medium: what a stronger model needs for the same job.
+ * Anthropic measured Opus 5.5 at low losing 34 points to medium on defect search, so this
+ * rule never lowers a job into low; a task judged low stays low.
+ */
+export const effortBelow = (e: Effort): Effort => (e === 'low' ? 'low' : ORDER[Math.max(1, ORDER.indexOf(e) - 1)] ?? 'medium')

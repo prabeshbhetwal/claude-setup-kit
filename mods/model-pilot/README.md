@@ -66,6 +66,10 @@ Effort changes how much a model thinks and writes per request; the model sets th
 
 These are observed, not controlled: harder tasks get higher effort, so each step up is an upper bound on what effort alone adds. With Claude Code's prompts of 100k tokens and more, re-reading the chat costs more than the output: a Sonnet request at 120k tokens of cache reads is about $0.012 of input and $0.01 of output at xhigh, an Opus request about $0.024 of input before any output. So Sonnet at high effort still costs less per request than Opus at low; it costs more only when it needs more steps or a retry, which this table cannot show. Haiku's prompts over 100k tokens pay its long-prompt rate, so Haiku at high effort (about $0.007 a request) costs about half of Sonnet at low (about $0.014), not a tenth: Haiku saves money only when it needs no more steps than Sonnet would.
 
+Effort changes keep the prompt cache: in 89 cases in the same transcripts where the effort changed between two requests on the same model, the second request still read the whole conversation from the cache (median ratio 1.0, against 1.0 when the effort stayed). So the pilot can change effort per turn freely; only a model change is weighed against the cache.
+
+Following Anthropic's model and effort guidance, the pilot also: asks Haiku for medium at least (at low it skips searches on long prompts); never runs Haiku past 100k prompt tokens; never lowers a job into low effort when it stays on a stronger model (Opus at low lost 34 points to medium on defect search); never picks max; and leaves `opusplan` alone.
+
 What the pilot does with this: it prices each candidate model at its own effort, and when it stays on a stronger model whose cache is warm (cheaper than switching down), it asks for one effort level less than the task was judged to need. An effort you set yourself is never lowered.
 
 ## Measured (November 2026, Claude Code 2.1.325)
