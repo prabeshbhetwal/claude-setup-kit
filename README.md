@@ -143,7 +143,7 @@ Every key, where it goes, and what still works without it: [.env.example](.env.e
 The rule behind this group: **can it be taken back?** Code edits can (git), so Claude does them freely. Leaked secrets, wiped work and force-pushed history can't, so they become deny rules. Claude Code applies deny rules in every permission mode, auto and bypass included.
 
 - **Deny rules** are added to `permissions.deny` in `~/.claude/settings.json`; your own rules are kept. Add more there yourself (for example `"Read(./secrets/**)"`).
-- **Hook time limits:** many plugins give their hooks 5 s. When several sessions start at once, those hooks miss it and Claude Code skips them ("A hook didn't answer in time"), so memory recall or a guard hook doesn't run. Each session start raises every plugin hook to at least 15 s; after a plugin update, the first session still uses the old limit.
+- **Hook time limits:** each session start raises every plugin hook to at least 15 s, so busy machines don't skip them ("A hook didn't answer in time").
 - **Bash sandbox:** off unless you tick it. Some installers and tools that write outside the project will ask or fail inside it; `/sandbox` changes it any time.
 - **Done checks** do nothing until a project opts in. Add an executable `.claude/verify` to a project, for example:
 
