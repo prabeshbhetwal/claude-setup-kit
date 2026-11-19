@@ -5,7 +5,7 @@
   house-rules.py approve <cid> ["rule text"] [--tags a,b]   # candidate -> active rule (rewrite it in one sentence if needed)
   house-rules.py reject <cid> | retire <rid> | rules
   house-rules.py replay [--days N] [--no-jev] [--ui-only] [--rules FILE] # run recall over real past prompts: trigger rate, size, latency, samples
-Store: ~/.claude/house-rules (git-versioned). Hook: ~/.claude/hooks/house-rules-recall.py. Design: claude-setup-kit/docs/setup-monitor-design.md.
+Store: ~/.claude/house-rules (git-versioned). Hook: ~/.claude/hooks/house-rules-recall.py.
 """
 import glob
 import hashlib
