@@ -30,7 +30,7 @@ BEFORE = (CHANGE - timedelta(days=BEFORE_DAYS), CHANGE)
 AFTER = (CHANGE + timedelta(days=1), CHANGE + timedelta(days=8))
 P = os.path.expanduser("~/.claude/projects")
 OUT = os.path.expanduser("~/.claude/cache/token-compare")
-SNAP = os.path.join(OUT, "before-week.json")
+SNAP = os.path.join(OUT, f"before-week-{CHANGE:%Y-%m-%d}.json")  # one frozen baseline per change day, so editing the day never reuses another day's
 FAMS = ("opus", "sonnet", "haiku", "fable")
 MIN_N = 10  # sessions needed on both sides before a stratum is compared (fewer and the median and p10 are noise)
 PROBE = tuple(int(x) for x in os.environ.get("TOKEN_COMPARE_PROBE", "").split(",") if x)  # optional "before,after" from your own `claude -p` probe

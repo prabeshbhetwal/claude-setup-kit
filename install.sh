@@ -526,7 +526,7 @@ if has measure; then
   copy_file "$KIT/files/hooks/house-rules-recall.py" "$CL/hooks/house-rules-recall.py" exec replace
   [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
   # Freeze the 30 days before install now, while those transcripts still exist (Claude Code prunes old ones).
-  [ -f "$CL/cache/token-compare/before-week.json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (30 days before install)"; }
+  [ -f "$CL/cache/token-compare/before-week-$(cat "$CL/cache/token-compare/change-date").json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (30 days before install)"; }
   b=$(python3 "$CL/hooks/token-compare.py" baseline 2>/dev/null) && [ -n "$b" ] && info "$b"
   python3 "$CL/hooks/token-report.py" --set "${REPORT:-month}" >/dev/null && ok "token report: ${REPORT:-month} (change any time: python3 ~/.claude/hooks/token-report.py --set week|fortnight|month|off)"
   # A daily 09:00 job; the script writes a report only when a chosen period has finished and has none yet,

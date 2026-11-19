@@ -58,7 +58,7 @@ fi
 # Every command is wrapped in timeout (600 s sync, 1800 s build): a hung tool exits 124, the stamp
 # stays unwritten, and the next turn retries — nothing can block refreshes forever.
 build() { # $1 = lock name, $2 = shell command (runs in the repo; reads TO CG GF sig stamp from the environment)
-  export TO CG GF sig stamp
+  export TO CG GF sig stamp r
   lock="$logdir/$key.$1.lock"
   find "$lock" -maxdepth 0 -mmin +45 -exec rmdir {} \; 2>/dev/null
   mkdir "$lock" 2>/dev/null || return 0
@@ -71,12 +71,12 @@ build() { # $1 = lock name, $2 = shell command (runs in the repo; reads TO CG GF
 
 if [ ! -d "$r/.codegraph" ]; then
   [ "$mode" = start ] && echo "No .codegraph/ in $r: building CodeGraph index in background (log: $log)."
-  build codegraph '"$TO" 1800 "$CG" init -y .'
+  build codegraph '"$TO" 1800 "$CG" init -y "$r"'
 fi
 
 if [ ! -d "$r/graphify-out" ]; then
   [ "$mode" = start ] && echo "No graphify-out/ in $r: building graphify graph in background (log: $log)."
-  build graphify '"$TO" 1800 "$GF" update .'
+  build graphify '"$TO" 1800 "$GF" update "$r"'
   exit $?
 fi
 [ "$mode" = start ] && echo "graphify-out/ present: read $r/graphify-out/GRAPH_REPORT.md (or wiki/index.md) before architecture/spec/doc questions."
@@ -92,5 +92,5 @@ sig=$( { git -C "$r" rev-parse HEAD 2>/dev/null
 
 # The stamp is written only after both refreshes succeed, so a failed run is retried next time.
 # Paths reach the command through the environment, so a quote in a repo path can't break it.
-build refresh '"$TO" 600 "$CG" sync . && "$TO" 1800 "$GF" update . && echo "$sig" > "$stamp"'
+build refresh '"$TO" 600 "$CG" sync "$r" && "$TO" 1800 "$GF" update "$r" && echo "$sig" > "$stamp"'
 exit $?
