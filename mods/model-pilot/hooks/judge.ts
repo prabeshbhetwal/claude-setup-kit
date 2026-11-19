@@ -166,6 +166,7 @@ const NAMED_TIER = new RegExp(
 )
 const LEADING_TIER = new RegExp(`^\\s*@?${TIER_WORD}\\s*[:,]\\s`, 'i')
 const ANY_TIER = new RegExp(`\\b${TIER_WORD}\\b`, 'gi')
+const COMPARING = /\b(?:compare|compared|comparing|versus|vs\.?|between|those)\b/i // a description of models, not an instruction
 const NEGATED = /\b(?:don['’]?t|do not|never|not|no|avoid|stop|instead of|rather than)(?:\s+ever)?(?:\s+(?:with|using|on|via|to))?\s*$/i
 
 /**
@@ -186,7 +187,7 @@ function namedTier(part: string, negated: Set<string>): string | undefined {
       continue
     }
     const isBare = /^(?:with|via|on)$/i.test(m[1] ?? '')
-    if (isBare && (tiers.size > 1 || /^[^.!\n]*\?/.test(part.slice((m.index ?? 0) + m[0].length)))) continue
+    if (isBare && (tiers.size > 1 || COMPARING.test(part) || /^[^.!\n]*\?/.test(part.slice((m.index ?? 0) + m[0].length)))) continue
     pick ??= tier
   }
   return pick

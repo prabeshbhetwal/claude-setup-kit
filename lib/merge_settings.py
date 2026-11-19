@@ -104,8 +104,8 @@ def redact(x, key=""):
         return [redact(v, key) for v in x]
     if isinstance(x, str) and (SECRET_KEY.search(key) or re.search(r"(sk-|sk_|ghp_|github_pat_|xox[bp]-|AKIA)[\w-]{8,}", x)):
         return "<hidden>"
-    if isinstance(x, str):  # a command line such as `FOO_TOKEN=abc python3 hook.py`: hide the value, keep the rest
-        return re.sub(r"(\w*(?:secret|token|passw|api[_-]?key|credential)\w*=)\S+", r"\1<hidden>", x, flags=re.I)
+    if isinstance(x, str) and re.search(r"\w*(?:secret|token|passw|api[_-]?key|credential)\w*=", x, re.I):
+        return "<command hidden: it contains a secret-looking value>"  # whole, because a quoted value can hold spaces
     return x
 
 
@@ -187,6 +187,8 @@ def selftest() -> None:
     out9 = merge(s9, {"t": {"hooks": [{"event": "Stop", "type": "command", "command": "x", "timeout": 15, "match": "x"}]}}, ["t"])
     assert out9 and "hunter2" not in " ".join(out9), out9  # a change summary never reprints an existing command
     assert "hunter2" not in json.dumps(redact({"hooks": {"Stop": [{"hooks": [{"command": f"x {k2}=hunter2hunter2"}]}]}})), "nor does the diff"
+    shown2 = json.dumps(redact({"command": "DB_PASS" + 'WORD="blue river synthetic" python3 hook.py'}))
+    assert "river" not in shown2 and "synthetic" not in shown2, shown2  # a quoted value with spaces is hidden whole
     print("selftest ok")
 
 

@@ -59,7 +59,7 @@ SECRET = re.compile(
     # name containing secret/password/api key, bare or quoted (JSON), then any value of 8+ (a numeric one is still a credential)
     r"|(?i:\w*(?:password|passwd|secret|api[_-]?key)\w*[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
     # a name containing "token": a plain number is a count (max_tokens: 4096), anything else of 8+ is a credential
-    r"|(?i:\w*token\w*[\"']?\s*[:=]\s*[\"']?(?![\d.]+[\"']?[,;)}\]]*(?=\s|$))[^\s\"']{8,})"
+    r"|(?i:\w*token\w*[\"']?\s*[:=]\s*[\"']?(?![\d.]+[\"']?[,;)}\]]*(?=\s|$|[\"'{\[]))[^\s\"']{8,})"
 )
 
 
@@ -272,7 +272,7 @@ def offline_test() -> None:
         assert not SECRET.search(text), text  # an all-numeric value is telemetry
     for text in ("refresh_" + "token=\"12345678,abcdefgh\"", "tok" + "en=12345678;abcdefgh"):
         assert SECRET.search(text), text  # a comma or semicolon INSIDE the value does not make it a count
-    for text in ('"max_tokens": 4096,', "tokens: 4096}", "token_count=123456789 next"):
+    for text in ('"max_tokens": 4096,', "tokens: 4096}", "token_count=123456789 next", '[{"total_tokens":12345678,"output_tokens":10}]'):
         assert not SECRET.search(text), text
     print("jev offline test ok")
 
