@@ -11,6 +11,9 @@ A turn = from the last prompt you typed to now, including helper agents (subagen
                      bytes; the report turns them into tokens at 4 bytes per token (an estimate)
   pilot_saved_usd    Model pilot's estimated saving for the turn against the menu model (its log): an estimate
 A source that is not installed is null, never 0. No network, no Claude tokens. Never blocks: any error exits 0.
+Idempotent per session and prompt: a repeated Stop for the same prompt writes only what is new since the lines
+already written for it (nothing when nothing is new), so the report's sums never count a turn twice.
+The backward read stops at MAX_WINDOW bytes: no typed prompt within it -> no line, never the whole huge file.
 """
 import glob
 import json
@@ -21,6 +24,8 @@ from datetime import datetime, timezone
 
 OUT = os.path.expanduser("~/.claude/cache/token-compare")
 LEDGER = os.path.join(OUT, "ledger.jsonl")
+MAX_WINDOW = 64 << 20
+SUMS = ("requests", "context", "output", "rtk_saved", "ctx_saved_bytes", "pilot_saved_usd")
 
 
 def when(s):
@@ -119,7 +124,7 @@ def typed(o):
 def turn(transcript, now):
     """(start, requests, context, output, by-family, bash commands) for the last typed prompt up to now."""
     # Read from the end, doubling the window until it holds the last typed prompt: a long chat is not re-read each turn.
-    size, total = 1 << 20, os.path.getsize(transcript)
+    size, total = min(1 << 20, MAX_WINDOW), os.path.getsize(transcript)
     while True:
         rows = []
         for line in tail(transcript, size):
@@ -128,9 +133,9 @@ def turn(transcript, now):
             except ValueError:
                 continue
         i = max((k for k, o in enumerate(rows) if typed(o)), default=None)
-        if i is not None or size >= total:
+        if i is not None or size >= total or size >= MAX_WINDOW:
             break
-        size *= 2
+        size = min(size * 2, MAX_WINDOW)
     if i is None:
         return None
     start = when(rows[i]["timestamp"])
@@ -174,23 +179,47 @@ def record(session, transcript, now=None, home=None, ledger=LEDGER, rtk=None, pi
     if not t or not t[1]:
         return None
     start, n, ctx, out, fams, cmds = t
-    line = {"ts": now.isoformat()[:19] + "Z", "session": session, "start": start.astimezone(timezone.utc).isoformat()[:19] + "Z",
+    line = {"ts": now.isoformat()[:19] + "Z", "session": session, "start": start.astimezone(timezone.utc).isoformat(),  # full precision: two prompts in one second stay two
             "requests": n, "context": ctx, "output": out, "by_model": fams,
             "rtk_saved": rtk_saved(start, now, cmds, rtk) if cmds else (0 if rtk or rtk_db() else None),
             "ctx_saved_bytes": ctx_saved(session, start, now, home), "pilot_saved_usd": pilot_saved(session, start, now, pilot)}
+    prev = earlier(ledger, session, line["start"])
+    if prev and n <= prev.get("requests", 0):
+        return None  # a repeated Stop for this prompt with nothing new
+    if prev:  # the turn went on after an earlier Stop: write only the increase
+        for k in (k for k in SUMS if line[k] is not None and prev.get(k) is not None):
+            line[k] = round(line[k] - prev[k], 6) if k == "pilot_saved_usd" else line[k] - prev[k]
+        line["by_model"] = {f: v - prev["by_model"].get(f, 0) for f, v in fams.items() if v - prev["by_model"].get(f, 0)}
     os.makedirs(os.path.dirname(ledger), exist_ok=True)
     with open(ledger, "a") as f:
         f.write(json.dumps(line) + "\n")
     return line
 
 
+def earlier(ledger, session, start):
+    """Sums of the lines already in the ledger for this session and prompt start ({} when none)."""
+    s = {"by_model": {}}
+    for raw in tail(ledger, 4 << 20) if os.path.exists(ledger) else []:  # a prompt's earlier lines are recent
+        try:
+            d = json.loads(raw) if start[:19] in raw else {}  # first 19 characters: the second, shared with older rows
+        except ValueError:
+            d = {}
+        if d.get("session") == session and d.get("start") in (start, start[:19] + "Z"):  # older rows keep the second only
+            for k in SUMS:
+                if d.get(k) is not None:
+                    s[k] = s.get(k, 0) + d[k]
+            for f, v in (d.get("by_model") or {}).items():
+                s["by_model"][f] = s["by_model"].get(f, 0) + v
+    return s if len(s) > 1 else {}
+
+
 def selftest():
-    import tempfile as _t
-    with _t.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+    global MAX_WINDOW, tail
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
         f.write("aaaa\nb\u2028b\ncc\n")
     assert tail(f.name, 5) == ["cc"] and tail(f.name, 99) == ["aaaa", "b\u2028b", "cc"], tail(f.name, 99)
     os.remove(f.name)
-    import tempfile
     with tempfile.TemporaryDirectory() as d:
         tr = os.path.join(d, "s.jsonl")
         J = lambda **o: json.dumps(o)
@@ -237,6 +266,26 @@ def selftest():
         assert line["requests"] == 3 and line["ctx_saved_bytes"] == 8000 and line["rtk_saved"] == 400 and line["pilot_saved_usd"] == 0.25 and json.loads(open(led).read())["context"] == 1515, line
         open(tr, "a").write(J(type="user", timestamp="2026-12-05T02:02:00Z", message={"content": "no reply yet"}) + "\n")
         assert record("S", tr, when("2026-12-05T02:02:01Z"), d, led, db, plog) is None  # a turn with no request writes nothing
+        # repeated Stop events for one prompt: the second writes nothing, a continued turn writes only the increase
+        led2, now2 = os.path.join(d, "ledger2.jsonl"), when("2026-12-05T02:01:00Z")
+        kept = [x for x in open(tr) if "no reply yet" not in x]
+        open(tr, "w").writelines(kept)
+        assert record("S", tr, now2, d, led2, db, plog) and record("S", tr, now2, d, led2, db, plog) is None
+        open(tr, "a").write(J(type="assistant", timestamp="2026-12-05T02:01:30Z", message={"id": "m9", "model": "claude-sonnet-5-5", "usage": {"input_tokens": 100, "output_tokens": 3}}) + "\n")
+        more = record("S", tr, when("2026-12-05T02:01:40Z"), d, led2, db, plog)
+        assert (more["requests"], more["context"], more["output"], more["by_model"]) == (1, 100, 3, {"sonnet": 100}), more
+        rows2 = [json.loads(x) for x in open(led2)]
+        assert len(rows2) == 2 and sum(r["context"] for r in rows2) == 1615 and sum(r["requests"] for r in rows2) == 4
+        led3 = os.path.join(d, "ledger3.jsonl")  # rows written before the full-precision key keep only the second
+        open(led3, "w").writelines(json.dumps(dict(r, start=r["start"][:19] + "Z")) + "\n" for r in rows2)
+        assert record("S", tr, when("2026-12-05T02:01:50Z"), d, led3, db, plog) is None, "an older row must still match its prompt"
+        # no typed prompt anywhere: the backward window stops at MAX_WINDOW instead of reading the whole file
+        big = os.path.join(d, "big.jsonl")
+        open(big, "w").write((J(type="assistant", timestamp="2026-12-05T02:00:05Z", message={"id": "x"}) + "\n") * 4000)
+        asked, real_tail = [], tail
+        MAX_WINDOW, tail = 64 << 10, lambda p, n: asked.append(n) or real_tail(p, n)
+        assert turn(big, now) is None and max(asked) == 64 << 10 < os.path.getsize(big), (asked, os.path.getsize(big))
+        MAX_WINDOW, tail = 64 << 20, real_tail
     print("selftest ok")
 
 

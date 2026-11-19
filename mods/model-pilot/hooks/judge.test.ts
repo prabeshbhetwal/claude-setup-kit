@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { explicitChoice, isFollowUp, judgePrompt, parseJudgeReply, rulesVerdict, floorCoding } from './judge'
+import { explicitChoice, isFollowUp, judgePrompt, parseJudgeReply, rulesFallback, rulesVerdict, floorCoding } from './judge'
 import type { JudgeInput } from './policy'
 
 const input = (prompt: string, kind: 'prompt' | 'agent' = 'prompt'): JudgeInput => ({ prompt, recent: '', contextTokens: 30_000, currentTier: 'sonnet', kind })
@@ -70,6 +70,20 @@ test('rules: short lookups are haiku', async () => {
   }
 })
 
+test('a positive model choice beside a negated alternative still counts', async () => {
+  expect(explicitChoice('Analyse this with Opus, not Fable.').tier).toBe('opus')
+  expect(explicitChoice('Summarise the file with Haiku rather than Opus.').tier).toBe('haiku')
+  expect(explicitChoice('Analyse this with Opus, not with Fable.').tier).toBe('opus')
+  expect(explicitChoice('compare haiku with sonnet').tier).toBeUndefined()
+  expect(explicitChoice('Compare requests not using Sonnet with those on Fable.').tier).toBeUndefined()
+  expect(explicitChoice('Summarise those files with Opus, high effort.')).toEqual({ tier: 'opus', effort: 'high' })
+  expect(explicitChoice('Sonnet got this wrong. Analyse this with Opus.').tier).toBe('opus')
+  expect(explicitChoice('Compare Sonnet 4.5 with Fable.').tier).toBeUndefined()
+  expect(explicitChoice('Summarise this with Opus, do not use Fable.').tier).toBe('opus')
+  expect(explicitChoice('We compared the results yesterday. Summarise the notes with Opus.').tier).toBe('opus')
+  expect(explicitChoice('Do not use fable; use sonnet instead.').tier).toBe('sonnet')
+})
+
 test('rules: an action asked as a question is work; ordinary words are not hard reasoning', async () => {
   for (const p of ['can you delete the old branches?', 'could you update the readme?', 'please fix the login bug']) expect(rulesVerdict(input(p)).tier).toBe('sonnet')
   for (const p of ['update my profile page', 'scale the image to 50%', 'design a logo']) expect(rulesVerdict(input(p)).tier).not.toBe('opus')
@@ -88,6 +102,21 @@ test('rules: a mechanical sub-agent task may be haiku, the same prompt from a pe
 test('follow-ups are recognised, real requests are not', async () => {
   for (const t of ['yes', 'ok', 'go ahead', 'do it', 'continue', 'Yes please', 'lgtm', '', 'option 2', 'sounds good, thanks', '<task-notification>\n<task-id>a1</task-id>']) expect(isFollowUp(t)).toBe(true)
   for (const t of ['yes but use a queue instead', 'fix the login bug', 'ok now design the schema', 'why?']) expect(isFollowUp(t)).toBe(false)
+})
+
+test('only engine tags read as a delivery, not any prompt starting with "<"', async () => {
+  for (const t of ['<cross-session-message from="x">hi', '<command-name>/pilot</command-name>', '<system-reminder>\nx', '<ci-monitor-event>', '<side-sessions-event>']) expect(isFollowUp(t)).toBe(true)
+  for (const t of ['<div> is not centred, fix the css', '<script> tag breaks the build', '<T>(x: T) => T: explain this signature']) expect(isFollowUp(t)).toBe(false)
+})
+
+test('a negated model is never chosen; a bare "with" or "on" in a comparison or question is no choice', async () => {
+  expect(explicitChoice('do not use fable; use sonnet').tier).toBe('sonnet')
+  expect(explicitChoice("don't use fable for this, use opus").tier).toBe('opus')
+  expect(explicitChoice('please never switch to fable').tier).toBe(undefined)
+  expect(explicitChoice('use opus here, and do not use opus for the tests').tier).toBe(undefined)
+  for (const t of ['is the context limit bigger on fable?', 'compare haiku with sonnet', 'how fast is it with opus?']) expect(explicitChoice(t).tier).toBe(undefined)
+  expect(explicitChoice('Summarise the file with haiku.').tier).toBe('haiku')
+  expect(explicitChoice('run this on opus').tier).toBe('opus')
 })
 
 test('a model named in the prompt is found', async () => {
@@ -112,6 +141,16 @@ test('words that only look like a model choice are left alone', async () => {
     'it took a lot of effort',
     'make a best effort guess',
   ]) expect(explicitChoice(t)).toEqual({})
+})
+
+test('the rules fallback keeps coding off haiku, as the judge path does', async () => {
+  const prompt = 'how do I fix the login handler bug'
+  expect(rulesVerdict(input(prompt)).tier).toBe('haiku') // a "how do" lookup to the rules alone
+  const v = rulesFallback(input(prompt), 'haiku', 'timeout')
+  expect(v.tier).toBe('sonnet')
+  expect(v.reason.includes('judge timeout')).toBe(true)
+  expect(rulesFallback(input('what is a monad?'), 'opus', 'privacy').tier).toBe('haiku')
+  expect(rulesFallback(input('add a test for the parser'), 'opus', 'failed').reason).toBe('judge failed: menu model kept')
 })
 
 test('haiku is never left on real coding; a mechanical one-liner may stay', async () => {

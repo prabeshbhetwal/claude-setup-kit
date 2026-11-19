@@ -5,31 +5,16 @@ import type { EngineInterface } from 'claude-code'
 
 import { appendLog, judge, readRan, recentDigest } from './engine'
 import type { Judged } from './engine'
-import { explicitChoice, isFollowUp, rulesVerdict } from './judge'
-import { decide, handoffBand, handoffThreshold, isPrivateFolder, placeTip, rulesFloor, tierOf, TIERS } from './policy'
+import { explicitChoice, isFollowUp, rulesFallback, rulesVerdict } from './judge'
+import { decide, handoffBand, handoffThreshold, placeTip, tierOf, TIERS } from './policy'
 import type { Decision, Effort, JudgeInput, Tier, Verdict, Warm } from './policy'
+import { chainOf } from './options'
+import type { Options } from './options'
+import { isPrivateHere } from './privacy'
 import { FAILED_CHECK } from './steer'
-import { addCosts, addUsage, asIfOn, estSavingUsd, noCosts, priceOf } from './prices'
+import { addCosts, addUsage, estSavingUsd, noCosts, turnCosts } from './prices'
 import type { Costs, Usage } from './prices'
 import type { PilotFlags, PilotView } from '../types'
-
-export type Options = {
-  privacy: boolean
-  privateFolders: string
-  allowUpgrade: boolean
-  /** 'auto', '250k', '500k', '750k' or 'never'. */
-  handoff: string
-  /** Try Jev before Haiku when its CLI and key are there. */
-  useJev: boolean
-  /** The longest the first model request waits for the judge. */
-  judgeBudgetMs: number
-  /** The model that judges: an alias or an id. */
-  judgeModel: string
-  /** Judge and log, but leave every request as the menu has it. */
-  isShadow: boolean
-  /** Ask before a turn the pilot (not the person) would run on Fable. */
-  confirmFable: boolean
-}
 
 type Pending = { at: number; input?: JudgeInput; judged: Promise<Judged | undefined> }
 
@@ -41,6 +26,8 @@ export type Rec = {
   isFirst: boolean
   pending?: Pending
   judgedOut?: Judged
+  /** A judge that answered after the turn went to the rules: its paid usage still counts. */
+  lateJudged?: Judged
   /** How long the first request waited for the judge. */
   waitedMs: number
   /** How long the judge had already run when the first request was ready. */
@@ -84,15 +71,6 @@ export const turnOf = (turnId: string): Rec | undefined => turns.get(turnId)
 /** A model switch the engine reported; the step-0 comparison then stays quiet. */
 export const noteSwitch = (): void => {
   isSwitchNoted = true
-}
-
-/** The judges this setup tries, in order. */
-export const chainOf = (o: Options): readonly ('jev' | 'haiku')[] => (o.useJev ? ['jev', 'haiku'] : ['haiku'])
-
-export async function isPrivateHere($: EngineInterface, o: Options): Promise<boolean> {
-  if (o.privacy) return true
-  if (!o.privateFolders.trim()) return false
-  return isPrivateFolder(await $.session.cwd(), o.privateFolders, (await $.env.get('HOME')) ?? '')
 }
 
 /** Whether this prompt needs a verdict at all: not a follow-up, not fully chosen by the person. */
@@ -151,7 +129,7 @@ export async function begin($: EngineInterface, o: Options, f: PilotFlags, turnI
 }
 
 /** The verdict for the turn: the judge's if it is back in time, else the rules, kept at or above the menu's tier. */
-async function verdictFor($: EngineInterface, o: Options, rec: Rec, menuTier: Tier): Promise<{ verdict: Verdict; source: 'judge' | 'rules' | 'sticky' }> {
+export async function verdictFor($: EngineInterface, o: Options, rec: Rec, menuTier: Tier): Promise<{ verdict: Verdict; source: 'judge' | 'rules' | 'sticky' }> {
   if (rec.isSticky && last) {
     return { verdict: { tier: last.required, effort: last.effort, confidence: 1, reason: 'follow-up: same as the work before' }, source: 'sticky' }
   }
@@ -170,13 +148,10 @@ async function verdictFor($: EngineInterface, o: Options, rec: Rec, menuTier: Ti
     } else {
       fail = got === 'late' ? 'timeout' : 'failed'
       rec.judgedOut = { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: rec.waitedMs, fail }
+      if (got === 'late') void rec.pending.judged.then(late => { rec.lateJudged = late })
     }
   }
-  const rules = rulesVerdict(rec.pending?.input ?? input)
-  const tier = rulesFloor(rules.tier, menuTier)
-  const why = fail === 'privacy' ? 'privacy mode' : `judge ${fail}`
-  const reason = tier === rules.tier ? `${rules.reason} (${why})` : `${why}: menu model kept`
-  return { verdict: { ...rules, tier, reason }, source: 'rules' }
+  return { verdict: rulesFallback(rec.pending?.input ?? input, menuTier, fail), source: 'rules' }
 }
 
 /**
@@ -253,14 +228,13 @@ export async function finish($: EngineInterface, o: Options, turnId: string, rec
   if (threshold > 0) {
     const band = handoffBand(rec.contextTokens, threshold)
     if (band > offeredBand) handoffTokens = rec.contextTokens
-    offeredBand = Math.max(offeredBand, band)
+    offeredBand = band // a /compact drops the band, so the next crossing offers again
   }
 
-  // Each tier's cost for the turn: the ran tier as billed; any other as if its own cache state applied.
-  const costOn = (t: Tier): number =>
-    rec.costs[t] + (rec.first ? priceOf(t === ranTier ? rec.first : asIfOn(rec.first, rec.warmAtStart.includes(t)), t) : 0)
-  const costs = { haiku: costOn('haiku'), sonnet: costOn('sonnet'), opus: costOn('opus'), fable: costOn('fable') }
+  const costs = turnCosts(rec.costs, rec.first, ranTier, menuTier, rec.warmAtStart)
   const j = rec.judgedOut
+  const judgeUsage = j?.usage ?? rec.lateJudged?.usage
+  const judgeTier = tierOf(o.judgeModel) ?? 'haiku'
   const ranFrom = row ? 'transcript' : ranModel ? 'api' : null
   await appendLog($, {
     ts: new Date(now).toISOString(),
@@ -282,9 +256,9 @@ export async function finish($: EngineInterface, o: Options, turnId: string, rec
     judge_wait_ms: rec.waitedMs,
     judge_lead_ms: rec.leadMs,
     judge_fail: j?.fail ?? null,
-    est_saving_usd: ranModel === null ? 0 : estSavingUsd(costs, menuTier, ranTier, j?.usage),
+    est_saving_usd: ranModel === null ? 0 : estSavingUsd(costs, menuTier, ranTier, judgeUsage, judgeTier),
     // In shadow mode nothing was applied: what the pick would have saved on the same tokens.
-    est_saving_if_applied_usd: o.isShadow && d.tier ? estSavingUsd(costs, menuTier, d.tier, undefined) : null,
+    est_saving_if_applied_usd: o.isShadow && d.tier ? estSavingUsd(costs, menuTier, d.tier, undefined, judgeTier) : null,
     usage: rec.usage,
     cost_usd: Math.round(costs[ranTier] * 1e6) / 1e6,
     place_tip: rec.tip,

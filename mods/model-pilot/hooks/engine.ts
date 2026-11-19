@@ -46,13 +46,16 @@ async function askJev($: EngineInterface, input: JudgeInput, timeoutMs: number, 
       st.isOff = true
       return undefined
     }
-    const r = await $.process.run([bin, 'raw'], { stdin: JSON.stringify(jevBody(input)), timeoutMs })
+    // --site and --cwd let jev apply ~/.claude/jev/policy.json (enabled, sites_off, skip_paths).
+    const argv = [bin, 'raw', '--site', 'model-pilot', '--cwd', await $.session.cwd()]
+    const r = await $.process.run(argv, { stdin: JSON.stringify(jevBody(input)), timeoutMs })
     const verdict = r.exitCode === 0 ? parseJevReply(r.stdout) : undefined
     if (verdict) {
       st.failures = 0
       return verdict
     }
-    if (/no TypeSafe key/.test(r.stderr)) st.isOff = true
+    // No key, refused by the policy, or a jev too old to apply it: no answer, and none asked again this session.
+    if (/no TypeSafe key|refused by|unrecognized arguments/.test(r.stderr)) st.isOff = true
     if (/credential/.test(r.stderr)) return undefined // its own guard refused the text: not a failure of Jev
   } catch {
     // timed out or could not start

@@ -5,6 +5,7 @@
 #   ./doctor.sh --quick   skip the MCP connection check
 set -u
 CL="$HOME/.claude"; BIN="$HOME/.local/bin"
+USER_PATH=$PATH  # what Claude's shell sees, before the doctor adds its own folders
 export PATH="$BIN:/opt/homebrew/bin:/usr/local/bin:$PATH"
 QUICK=0; [ "${1:-}" = --quick ] && QUICK=1
 nfail=0; nwarn=0
@@ -38,7 +39,8 @@ PY
 exe() { [ -x "$1" ] && pass "$2" || fail "$2 missing ($1)"; }
 selftest() { out=$("$@" 2>&1) && pass "self-test: $*" || fail "self-test failed: $* -> $(printf '%s' "$out" | tail -1)"; }
 
-python3 -c "import json;json.load(open('$S'))" 2>/dev/null && pass "settings.json is valid JSON" || fail "settings.json unreadable"
+if [ ! -f "$S" ]; then pass "no settings.json yet (nothing of the kit needs one for the tools you picked)"
+else python3 -c "import json,sys;json.load(open(sys.argv[1]))" "$S" 2>/dev/null && pass "settings.json is valid JSON" || fail "settings.json unreadable"; fi
 
 # core
 if has caveman; then
@@ -56,7 +58,7 @@ if has rtk; then
     pass "rtk $(rtk --version 2>/dev/null | awk '{print $2}')"
     # Run the hook command exactly as settings.json has it, with a bare PATH: Claude Code's hook PATH may lack
     # ~/.local/bin and Homebrew, so a hook that only works from this shell's PATH is a FAIL, not a PASS.
-    hc=$(python3 -c "import json;print(next((h['command'] for g in json.load(open('$S')).get('hooks',{}).get('PreToolUse',[]) for h in g.get('hooks',[]) if 'hook claude' in h.get('command','')),''))")
+    hc=$(python3 -c "import json,sys;print(next((h['command'] for g in json.load(open(sys.argv[1])).get('hooks',{}).get('PreToolUse',[]) for h in g.get('hooks',[]) if 'hook claude' in h.get('command','')),''))" "$S")
     out=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status"}}' | env -i HOME="$HOME" PATH=/usr/bin:/bin sh -c "$hc" 2>/dev/null)
     if grep -q 'rtk git status' <<< "$out"; then pass "RTK hook rewrites commands with a bare PATH ($hc)"
     elif printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status"}}' | sh -c "$hc" 2>/dev/null | grep -q 'rtk git status'; then
@@ -77,7 +79,7 @@ if has safety; then
   selftest python3 "$CL/hooks/block-rm.py" --test
   hook_on PreToolUse "block-rm.py" "rm blocker"
   hook_on SessionStart "apply-hook-timeouts.py" "plugin hook time limits (15 s)"
-  command -v trashmv >/dev/null 2>&1 && pass "trashmv on your PATH" || warn "trashmv is not on your PATH, so Claude cannot run it: add ~/.local/bin to PATH in your shell profile"
+  PATH=$USER_PATH command -v trashmv >/dev/null 2>&1 && pass "trashmv on your PATH" || warn "trashmv is not on your PATH, so Claude cannot run it: add ~/.local/bin to PATH in your shell profile"
 fi
 if has guard; then
   n=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(r in d.get("permissions",{}).get("deny",[]) for r in ("Read(.env)","Bash(git reset --hard *)","Bash(git push --force *)")))' "$CL/settings.json" 2>/dev/null)
@@ -133,7 +135,7 @@ fi
 has supermemory && plugin_on supermemory@supermemory-plugins
 if has cognee; then
   plugin_on cognee-memory@cognee
-  hook_env=$(python3 -c "import json;print(json.load(open('$S')).get('env',{}).get('COGNEE_BACKEND',''))")
+  hook_env=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('env',{}).get('COGNEE_BACKEND',''))" "$S")
   [ "$hook_env" = local ] && pass "COGNEE_BACKEND=local" || fail "COGNEE_BACKEND is not local in settings.json env"
   grep -q '^LLM_API_KEY=.' "$HOME/.cognee/.env" 2>/dev/null && pass "Cognee LLM_API_KEY set" || pass "Cognee: no LLM_API_KEY, so it runs on your Claude plan (counts towards its usage limits)"
   code=$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8011/health)

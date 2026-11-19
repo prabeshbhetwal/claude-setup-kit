@@ -43,13 +43,20 @@ def policy() -> dict:
     try:
         return {**DEFAULTS, **json.loads(POLICY.read_text())}
     except (OSError, ValueError):
-        return dict(DEFAULTS)
+        return {**DEFAULTS, "unreadable": True}  # consent is recorded there: without it, optional sites stay off
 
 
 def _allowed(pol: dict, cwd: str, site: str = "") -> bool:
+    if pol.get("unreadable") and site not in ("", "cli"):
+        return False  # policy.json missing or corrupt: never send for a hook or plugin on a guess
+    return pol["enabled"] and site not in pol.get("sites_off", []) and not skipped(pol, cwd)
+
+
+def skipped(pol: dict, cwd: str) -> bool:
+    """cwd is inside a skip_paths entry (the folder itself or below it, not a sibling sharing its prefix)."""
     cwd = os.path.realpath(cwd or os.getcwd())
-    return pol["enabled"] and site not in pol.get("sites_off", []) and not any(cwd.startswith(os.path.realpath(os.path.expanduser(p)))
-                                      for p in pol["skip_paths"])
+    roots = [os.path.realpath(os.path.expanduser(p)) for p in pol.get("skip_paths", []) if p]
+    return any(cwd == r or cwd.startswith(r.rstrip(os.sep) + os.sep) for r in roots)
 
 
 def _post(body: dict, timeout: float) -> dict:

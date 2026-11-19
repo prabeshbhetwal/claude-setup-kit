@@ -5,6 +5,9 @@ import type { EngineInterface } from 'claude-code'
 import { judge } from './engine'
 import type { Judged } from './engine'
 import { rulesVerdict } from './judge'
+import type { Options } from './options'
+import { chainOf } from './options'
+import { isPrivateHere } from './privacy'
 import { decide, TIERS } from './policy'
 import type { JudgeInput, Tier, Verdict } from './policy'
 
@@ -41,11 +44,13 @@ export function score(rows: readonly Outcome[]): Record<string, number> {
   }
 }
 
-export async function runEval($: EngineInterface, path: string, model: string): Promise<string> {
+export async function runEval($: EngineInterface, path: string, model: string, o?: Options): Promise<string> {
   if (!path) return 'Usage: /pilot eval <file.jsonl> [--jev | --haiku | --rules]'
   const flag = / --(jev|haiku|rules)$/.exec(path)?.[1] ?? 'chain'
-  const isRulesOnly = flag === 'rules'
-  const chain: readonly ('jev' | 'haiku')[] = flag === 'jev' ? ['jev'] : flag === 'haiku' ? ['haiku'] : ['jev', 'haiku']
+  const isPrivate = o ? await isPrivateHere($, o) : false // privacy mode or a private folder: the local rules only, like a live turn
+  const isRulesOnly = flag === 'rules' || isPrivate
+  const own = o ? chainOf(o) : (['jev', 'haiku'] as const) // Jev only when its opt-in is on
+  const chain: readonly ('jev' | 'haiku')[] = flag === 'jev' ? own.filter(x => x === 'jev') : flag === 'haiku' ? ['haiku'] : own
   const file = path.replace(/ --(jev|haiku|rules)$/, '').trim()
   const cases = (await $.fs.read(file))
     .split('\n')
@@ -57,7 +62,7 @@ export async function runEval($: EngineInterface, path: string, model: string): 
   const worker = async (): Promise<void> => {
     for (let c = queue.shift(); c; c = queue.shift()) {
       const input: JudgeInput = { prompt: c.prompt, recent: c.recent ?? '', contextTokens: c.context_tokens ?? 30_000, currentTier: 'sonnet', kind: c.kind ?? 'prompt' }
-      const j: Judged = isRulesOnly ? { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: 0 } : await judge($, input, { isPrivate: false, budgetMs: HARD_STOP_MS, model, chain, jev })
+      const j: Judged = isRulesOnly ? { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: 0 } : await judge($, input, { isPrivate, budgetMs: HARD_STOP_MS, model, chain, jev })
       rows.push({ id: c.id, by: j.by, label: c.tier, picked: requiredOf(j.verdict, j.source, input.contextTokens), effort: j.verdict.effort, labelEffort: c.effort, source: j.source, ms: j.ms, confidence: j.verdict.confidence, gap: j.verdict.gap, checkable: j.verdict.checkable, reason: j.fail ? `${j.verdict.reason} [${j.fail}]` : j.verdict.reason })
     }
   }

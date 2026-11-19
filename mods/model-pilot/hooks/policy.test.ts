@@ -1,8 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
-import { agentFileNamesModel, agentTier, decide, estTurnCost, handoffBand, handoffThreshold, isPrivateFolder, placeCosts, placeTip, rulesFloor, spawnNote, tierOf, tierUp } from './policy'
+import { agentFileNamesModel, agentTier, decide, estTurnCost, handoffBand, handoffThreshold, placeCosts, placeTip, rulesFloor, spawnNote, tierOf, tierUp } from './policy'
 import type { DecideInput, Verdict } from './policy'
-import { addCosts, asIfOn, estSavingUsd, noCosts, priceOf } from './prices'
+import { isPrivateFolder } from './privacy'
+import { addCosts, asIfOn, estSavingUsd, noCosts, priceOf, turnCosts } from './prices'
 
 const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-7
 
@@ -112,6 +113,20 @@ test('upgrades above the menu can be switched off', async () => {
   expect(held.reason.includes('upgrades are off')).toBe(true)
 })
 
+test('with upgrades off a warm cache never lifts the pick above the menu', async () => {
+  const warmFable = { fable: { at: 10 * HOUR - 60_000, tokens: 150_000 } }
+  const d = decide(base({ verdict: verdict('sonnet'), menuTier: 'sonnet', contextTokens: 150_000, warm: warmFable, canUpgrade: false }))
+  expect(d.tier).toBe('sonnet')
+  expect(decide(base({ verdict: verdict('sonnet'), menuTier: 'sonnet', contextTokens: 150_000, warm: warmFable })).tier).toBe('fable')
+})
+
+test('a retry after a failed check keeps high effort even on a warmer, stronger tier', async () => {
+  const v = { ...verdict('sonnet'), checkable: true }
+  const d = decide(base({ verdict: v, contextTokens: 150_000, warm: { opus: { at: 10 * HOUR - 60_000, tokens: 150_000 } }, isRetry: true }))
+  expect(d.tier).toBe('opus')
+  expect(d.effort).toBe('high')
+})
+
 test('a model named in the prompt wins over everything', async () => {
   const d = decide(base({ verdict: verdict('opus'), explicit: { tier: 'haiku', effort: 'max' }, isModelPinned: true, isEffortPinned: true }))
   expect(d.tier).toBe('haiku')
@@ -146,9 +161,24 @@ test('prices and the saving estimate', async () => {
   expect(near(priceOf(short, 'opus'), 0.4)).toBe(true)
   expect(near(priceOf(short, 'haiku'), 0.01)).toBe(true)
   const c = addCosts(noCosts(), short)
-  expect(estSavingUsd(c, 'opus', 'haiku', undefined)).toBe(0.39)
-  expect(estSavingUsd(c, 'opus', 'opus', { input_tokens: 1000, output_tokens: 100 }) < 0).toBe(true)
-  expect(estSavingUsd(c, 'sonnet', 'opus', undefined) < 0).toBe(true)
+  expect(estSavingUsd(c, 'opus', 'haiku', undefined, 'haiku')).toBe(0.39)
+  expect(estSavingUsd(c, 'opus', 'opus', { input_tokens: 1000, output_tokens: 100 }, 'haiku') < 0).toBe(true)
+  expect(estSavingUsd(c, 'sonnet', 'opus', undefined, 'haiku') < 0).toBe(true)
+})
+
+test('the judge call is priced on the judge model, not always as Haiku', async () => {
+  const c = addCosts(noCosts(), { input_tokens: 50_000, output_tokens: 10_000 })
+  const judge = { input_tokens: 10_000, output_tokens: 1_000 }
+  expect(estSavingUsd(c, 'opus', 'haiku', judge, 'sonnet')).toBe(Math.round((0.39 - priceOf(judge, 'sonnet')) * 1e6) / 1e6)
+})
+
+test('the menu tier is priced warm when the chat was warm: a move away does not inflate the saving', async () => {
+  const first = { input_tokens: 5, output_tokens: 300, cache_read_input_tokens: 100_000 }
+  const c = turnCosts(noCosts(), first, 'haiku', 'opus', ['haiku'])
+  expect(near(c.opus, priceOf(first, 'opus'))).toBe(true) // a read, not a 100k write
+  expect(near(c.haiku, priceOf(first, 'haiku'))).toBe(true)
+  expect(near(c.sonnet, priceOf(asIfOn(first, false), 'sonnet'))).toBe(true) // never warm: written afresh
+  expect(near(turnCosts(noCosts(), { input_tokens: 5, cache_creation_input_tokens: 9_000 }, 'haiku', 'opus', []).opus, priceOf({ input_tokens: 5, cache_creation_input_tokens: 9_000 }, 'opus'))).toBe(true)
 })
 
 test('prices match what the engine billed on a live run (1-hour cache writes, Haiku long-prompt card)', async () => {
@@ -163,15 +193,24 @@ test('prices match what the engine billed on a live run (1-hour cache writes, Ha
 })
 
 test('sub-agents: unsure goes up; an agent file that names a model is detected', async () => {
-  expect(agentTier(verdict('haiku', 0.9), 'judge', 'opus')).toBe('haiku')
-  expect(agentTier(verdict('haiku', 0.4), 'judge', 'opus')).toBe('sonnet')
-  expect(agentTier(verdict('haiku', 0.4), 'rules', 'opus')).toBe('haiku')
-  expect(agentTier(verdict('sonnet'), 'rules', 'opus')).toBe('opus')
+  expect(agentTier(verdict('haiku', 0.9), 'judge', 'opus', true, false)).toBe('haiku')
+  expect(agentTier(verdict('haiku', 0.4), 'judge', 'opus', true, false)).toBe('sonnet')
+  expect(agentTier(verdict('haiku', 0.4), 'rules', 'opus', true, false)).toBe('haiku')
+  expect(agentTier(verdict('sonnet'), 'rules', 'opus', true, false)).toBe('opus')
   expect(agentFileNamesModel('---\nname: x\nmodel: opus\n---\nbody')).toBe(true)
   expect(agentFileNamesModel('---\nname: x\nmodel: "claude-haiku-5-5"\n---\n')).toBe(true)
   expect(agentFileNamesModel('---\nname: x\nmodel: inherit\n---\n')).toBe(false)
   expect(agentFileNamesModel('---\nname: x\ntools: Read\n---\nmodel: opus in the body')).toBe(false)
   expect(agentFileNamesModel('no frontmatter')).toBe(false)
+})
+
+test('sub-agents obey allowUpgrade and never reach Fable without a yes', async () => {
+  expect(agentTier(verdict('opus'), 'judge', 'sonnet', false, false)).toBe('sonnet')
+  expect(agentTier(verdict('fable'), 'rules', 'haiku', false, false)).toBe('haiku')
+  expect(agentTier(verdict('opus'), 'judge', 'sonnet', true, false)).toBe('opus')
+  expect(agentTier(verdict('fable'), 'judge', 'opus', true, true)).toBe('opus')
+  expect(agentTier(verdict('fable'), 'judge', 'opus', true, false)).toBe('fable') // asking is off, or yes for this chat
+  expect(agentTier(verdict('fable'), 'judge', 'fable', true, true)).toBe('fable') // the parent is on Fable already
 })
 
 test('without the judge, rules may drop to haiku for a lookup but never otherwise below the menu', async () => {

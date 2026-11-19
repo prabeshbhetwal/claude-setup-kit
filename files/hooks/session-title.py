@@ -65,8 +65,8 @@ US_SPELLING = re.compile(
     r"|\b(?:cancel|travel|label|model|fuel|signal|channel|level|marvel|quarrel|counsel)(?:ed|ing|er|ers)\b",
     re.I,
 )
-US_OK = {"size", "sizes", "sized", "sizing", "resize", "resized", "resizing", "downsize", "prize", "prizes",
-         "prized", "prizing", "seize", "seizes", "seized", "seizing", "maize", "citizen", "citizens"}
+US_OK = {"prize", "prizes", "prized", "prizing", "seize", "seizes", "seized", "seizing", "maize", "citizen", "citizens"}
+SIZE = re.compile(r"(?:re|up|down|over|under|right|large|small|mid|full|half|cap|pint|bite|life|king|queen|plus|jumbo|super)?siz(?:e|es|ed|ing)", re.I)  # Resize, Oversized, Capsize; not Emphasize
 # Dots inside a token are fine (Release 1.3.5, Next.js, Python 3.x); any other non-word character is punctuation.
 INNER_DOT = re.compile(r"(?<=\w)\.(?=\w)")
 
@@ -81,7 +81,7 @@ def problems(title, spelling="au"):
     if any(not (c.isalnum() or c.isspace() or c == "-") for c in INNER_DOT.sub("", title)):
         found.append("contains punctuation")
     for m in US_SPELLING.finditer(title) if spelling == "au" else ():  # only the Australian profile is checked
-        if m.group(0).lower() not in US_OK:
+        if m.group(0).lower() not in US_OK and not SIZE.fullmatch(m.group(0)):
             found.append(f"US spelling \"{m.group(0)}\"")
     return found
 
@@ -94,11 +94,10 @@ def records(path, offset=0):
         with open(path, "rb") as f:
             f.seek(offset)
             for raw in f:
-                line = raw.decode("utf-8", errors="replace")
-                if '"custom-title"' not in line and "set_session_title" not in line:
-                    continue
+                if b'"custom-title"' not in raw and b"set_session_title" not in raw:
+                    continue  # most lines: skipped without decoding
                 try:
-                    obj = json.loads(line)
+                    obj = json.loads(raw.decode("utf-8", errors="replace"))
                 except ValueError:
                     continue
                 if isinstance(obj, dict):
@@ -195,6 +194,9 @@ def selftest():
     assert any("punctuation" in x for x in problems("Fix: login"))
     assert any("US spelling" in x for x in problems("Optimizing queries")) and problems("Optimising queries") == []
     assert problems("Optimizing queries", "us") == [] and problems("Resize images") == [] and problems("Labor policy") == []
+    assert problems("Oversized assets") == [] and problems("Capsize fix") == [] and problems("Upsizing plan") == []
+    assert problems("Emphasize layout") and problems("Synthesize notes")  # words that merely end in size are still US spellings
+    assert any("US spelling" in x for x in problems("Finalize sizing"))
     assert "Australian" in rules("au") and "American" in rules("us") and "English" not in rules("none")
     st = {}
     out = on_prompt({"transcript_path": "/nonexistent"}, st)  # no title yet -> asks, and marks the turn pending

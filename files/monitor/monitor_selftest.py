@@ -82,3 +82,37 @@ def house_rules_checks(d):
     assert len(T.note(hit)) < 600
     assert "<path>" in T.redact("see /srv/me/app/src/Hero.tsx now") and "<email>" in T.redact("mail a" + "@b.com")  # split so the repo scan sees no address
     assert T.week_markers(0, time.time() + 1, 10)["P1"] == 0.0
+    jev_child_checks(d, T)
+
+
+FAKE_JEV = """import concurrent.futures, json, time
+def policy(): return {{"skip_paths": [{skip!r}]}}
+def skipped(pol, cwd): return cwd.startswith(pol["skip_paths"][0])
+def noul(site, q, items, ctx="", cwd=""):  # an executor like the real jev_lib: its worker is joined at exit
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        pool.submit(time.sleep, {delay}).result()
+    open({sent!r}, "a").write(json.dumps(items) + "\\n")
+    return [0.9] * len(items)
+"""
+
+
+def jev_child_checks(d, T):
+    """Jev runs in a child: skip_paths sentences never reach it, and a slow Jev cannot hold the prompt."""
+    import subprocess
+    import sys
+    sent, fast, slow = (os.path.join(d, x) for x in ("sent.jsonl", "fast", "slow"))
+    for folder, delay in ((fast, 0), (slow, 10)):
+        os.makedirs(folder)
+        open(os.path.join(folder, "jev_lib.py"), "w").write(FAKE_JEV.format(skip="/srv/client", delay=delay, sent=sent))
+    T.JEV_DIR = fast
+    probs = T.jev_probs("house-rules-mine", "q", ["keep it calm", "client secret plan", "no folder"], "", timeout=20,
+                        cwds=["/srv/mine", "/srv/client/app", ""])
+    assert probs == [0.9, None, None], probs
+    assert open(sent).read().strip() == json.dumps(["keep it calm"]), "skip_paths or unknown-folder item sent"
+    # whole process (as the recall hook runs it) must exit near the 1.5 s cap with a 10 s Jev
+    code = (f"import sys; sys.path.insert(0, {os.path.dirname(os.path.abspath(T.__file__))!r}); import house_rules_store as T; "
+            f"T.JEV_DIR = {slow!r}; print(T.jev_probs('house-rules-recall', 'q', ['a'], ''))")
+    t = time.time()
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30).stdout.strip()
+    took = time.time() - t
+    assert out == "None" and took < 2.5, (out, took)

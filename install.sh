@@ -40,6 +40,7 @@ todo() { TODO="$TODO$1
 "; }
 has()  { case "$SELECTED" in *" $1 "*) return 0 ;; esac; return 1; }
 add()  { has "$1" || SELECTED="$SELECTED$1 "; }
+xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }  # a path inside plist XML
 short() { local t="~"; printf '%s' "${1/#$HOME/$t}"; }
 drop() { SELECTED=$(printf '%s' "$SELECTED" | sed "s/ $1 / /"); }
 field() { awk -F'|' -v id="$1" -v n="$2" '$1==id {print $n}' "$CAT"; }
@@ -71,6 +72,15 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Bad choices are refused before any question is asked.
+for w in $JEV_SHARE; do case "$w" in pilot|recall|mine|code) ;; *) say "Unknown --jev-share part: $w (pilot, recall, mine, code or none)"; exit 2 ;; esac; done
+case "$JEV_HOOKS" in ''|yes|no) ;; *) say "--jev-hooks takes yes or no"; exit 2 ;; esac
+case "$REPORT" in ''|week|fortnight|month|off) ;; *) say "--report takes week, fortnight, month or off"; exit 2 ;; esac
+case "$HANDOFF" in ''|auto|250k|500k|750k|never) ;; *) say "--handoff takes auto, 250k, 500k, 750k or never"; exit 2 ;; esac
+case "$CONFIRM_FABLE" in ''|yes|no) ;; *) say "--confirm-fable takes yes or no"; exit 2 ;; esac
+case "$CAVEMODE" in ''|lite|full|ultra) ;; *) say "--caveman-mode takes lite, full or ultra"; exit 2 ;; esac
+case "$TITLE_SPELLING" in ''|au|us|none) ;; *) say "--title-spelling takes au, us or none"; exit 2 ;; esac
 
 # Before any question: a Linux user should not answer them all just to be told the kit is Mac-only.
 if [ "$(uname -s)" != Darwin ] && [ "${KIT_ALLOW_NON_MAC:-}" != 1 ]; then
@@ -225,7 +235,7 @@ DO_SETTINGS=1
 if has rules; then
   say ""
   say "Rules file: Claude reads ~/.claude/CLAUDE.md at the start of every chat. The kit's version tells it when"
-  say "to use each tool you picked; without it Claude often forgets they exist. Five short guides go in ~/.claude/guides/."
+  say "to use each tool you picked; without it Claude often forgets they exist. Short guides go in ~/.claude/guides/ (four, or five with model routing)."
   [ -f "$CL/CLAUDE.md" ] && say "You already have a CLAUDE.md. If you edited it, yours is kept and any newer kit version is saved next to it as CLAUDE.md.kit-new; if you did not, it is updated (old copy backed up)."
   ask "Write the rules file and guides?" y || { drop rules; info "rules file left out"; }
 fi
@@ -245,7 +255,7 @@ for id in rtk safety indexes routing cognee jev measure guard sandbox verify ses
   break
 done
 if has measure && [ -z "$REPORT" ]; then
-  REPORT=month
+  REPORT=$(cat "$CL/kit/report-period" 2>/dev/null); REPORT=${REPORT:-month}  # a re-run keeps what you chose before
   if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
     say ""
     say "Token report: how much Claude used, how much the kit saved, and what you would have used without it."
@@ -257,6 +267,7 @@ if has measure && [ -z "$REPORT" ]; then
   fi
 fi
 case "$REPORT" in ''|week|fortnight|month|off) ;; *) info "Report choice '$REPORT' not known: using month"; REPORT=month ;; esac
+if has jev && [ "$DO_SETTINGS" = 0 ]; then JEV_HOOKS=no; fi  # no hooks at all, so none of Jev's either
 if has jev && [ -z "$JEV_HOOKS" ]; then
   JEV_HOOKS=no
   if [ "$MODE" = ask ] && [ "$TTY" = 1 ]; then
@@ -264,7 +275,8 @@ if has jev && [ -z "$JEV_HOOKS" ]; then
     say "Jev's background hooks measure where Jev could help. Once your TypeSafe key is set they send to TypeSafe:"
     say "every shell command Claude runs, up to 300 lines of large tool output (file reads, searches, web pages,"
     say "connected tools) with your last prompt, the sender, subject and snippet of emails Claude reads, and helper"
-    say "agents' reports. Billed to your TypeSafe account. Jev itself works without them."
+    say "agents' reports, and (when a skill with \"review\" in its name runs) up to 60,000 characters of the branch diff"
+    say "with the last commit message. Billed to your TypeSafe account. Jev itself works without them."
     ask "Add Jev's background hooks?" n && JEV_HOOKS=yes
   fi
 fi
@@ -278,12 +290,14 @@ if has jev && [ -z "$JEV_SHARE" ]; then
       ask "  Model pilot: send up to 3,000 characters of each prompt, a short digest of recent turns and each helper agent's task, to pick the model?" n && JEV_SHARE="$JEV_SHARE pilot"
     fi
     if has measure; then
-      ask "  House rules: send the first 200 characters of a prompt (emails, links, paths removed) when a saved rule might fit?" n && JEV_SHARE="$JEV_SHARE recall"
-      ask "  House rules: on Mondays, send last week's sentences where you corrected Claude (redacted), to find preferences?" n && JEV_SHARE="$JEV_SHARE mine"
+      ask "  House rules: when a saved rule might fit a prompt, send its first 200 characters (emails, links, paths removed) with up to eight of your saved rules?" n && JEV_SHARE="$JEV_SHARE recall"
+      ask "  House rules: on Mondays, send the last eight days of your sentences that correct Claude or state a UI preference (redacted), to find preferences?" n && JEV_SHARE="$JEV_SHARE mine"
+    fi
+    if has indexes; then
+      ask "  Code search: send the first 3,000 characters of a prompt to decide whether it is about code (without it a local word check decides)?" n && JEV_SHARE="$JEV_SHARE code"
     fi
   fi
 fi
-for w in $JEV_SHARE; do case "$w" in pilot|recall|mine) ;; *) say "Unknown --jev-share part: $w (pilot, recall, mine or none)"; exit 2 ;; esac; done
 case "$JEV_HOOKS" in ''|yes|no) ;; *) info "Jev hooks choice '$JEV_HOOKS' not known: using no"; JEV_HOOKS=no ;; esac
 if has model-pilot && [ "$(uname -s)" != Darwin ]; then drop model-pilot; info "Model pilot left out: it is macOS only"; fi
 if has model-badge && [ "$(uname -s)" != Darwin ]; then drop model-badge; info "Model badge left out: it is macOS only for now"; fi
@@ -447,7 +461,7 @@ plugin() { # plugin MARKETPLACE_SOURCE MARKETPLACE_NAME PLUGIN
 # ---------------------------------------------------------------- rules + guides (first: later tools append to CLAUDE.md)
 if has rules; then
   rendered=$(mktemp "${TMPDIR:-/tmp}/kit-claude.XXXXXX") || { fail "could not make a temporary file for CLAUDE.md"; rendered=/dev/null; }
-  python3 - "$KIT/files/CLAUDE.template.md" "$rendered" $SELECTED $(cat "$CL/kit/installed" 2>/dev/null) <<'PY'
+  python3 - "$KIT/files/CLAUDE.template.md" "$rendered" $SELECTED $(cat "$CL/kit/installed" 2>/dev/null) $([ "$JEV_HOOKS" = yes ] && echo jev-hooks) <<'PY'
 import re, sys
 src, out, keep = sys.argv[1], sys.argv[2], set(sys.argv[3:])
 text = open(src).read()
@@ -499,7 +513,8 @@ if has rtk; then
     brew install rtk >/dev/null 2>&1 && ok "rtk (Homebrew)" || fail "brew install rtk (run it yourself to see why)"
   else
     # Upstream's documented installer (github.com/rtk-ai/rtk). RTK_EDITION=oss gives the Apache-2.0-only build.
-    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh >/dev/null 2>&1 \
+    info "no Homebrew: running RTK's own install script (github.com/rtk-ai/rtk, install.sh on its master branch)"
+    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
       && ok "rtk (install script)" || fail "rtk install script"
   fi
   # The hook gets rtk's absolute path: Claude Code's hook PATH may not include ~/.local/bin or Homebrew.
@@ -566,10 +581,10 @@ if has measure; then
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$LBL</string>
-  <key>ProgramArguments</key><array><string>$(command -v python3)</string><string>$CL/hooks/token-report.py</string><string>--scheduled</string><string>--notify</string></array>
+  <key>ProgramArguments</key><array><string>$(xml "$(command -v python3)")</string><string>$(xml "$CL")/hooks/token-report.py</string><string>--scheduled</string><string>--notify</string></array>
   <key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-  <key>StandardOutPath</key><string>$CL/cache/token-compare/reports/launchd.log</string>
-  <key>StandardErrorPath</key><string>$CL/cache/token-compare/reports/launchd.log</string>
+  <key>StandardOutPath</key><string>$(xml "$CL")/cache/token-compare/reports/launchd.log</string>
+  <key>StandardErrorPath</key><string>$(xml "$CL")/cache/token-compare/reports/launchd.log</string>
 </dict></plist>
 PLIST
   if cmp -s "$PL.tmp" "$PL"; then rm -f "$PL.tmp"; ok "token report job already scheduled (daily check, 09:00)"
@@ -588,10 +603,10 @@ PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$LBL</string>
-  <key>ProgramArguments</key><array><string>$(command -v python3)</string><string>$CL/monitor/bin/setup-monitor.py</string><string>weekly</string><string>--notify</string></array>
+  <key>ProgramArguments</key><array><string>$(xml "$(command -v python3)")</string><string>$(xml "$CL")/monitor/bin/setup-monitor.py</string><string>weekly</string><string>--notify</string></array>
   <key>StartCalendarInterval</key><dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer></dict>
-  <key>StandardOutPath</key><string>$CL/monitor/launchd.log</string>
-  <key>StandardErrorPath</key><string>$CL/monitor/launchd.log</string>
+  <key>StandardOutPath</key><string>$(xml "$CL")/monitor/launchd.log</string>
+  <key>StandardErrorPath</key><string>$(xml "$CL")/monitor/launchd.log</string>
 </dict></plist>
 PLIST
   if cmp -s "$PL.tmp" "$PL"; then rm -f "$PL.tmp"; ok "setup monitor already scheduled (Mondays 08:15)"
@@ -631,7 +646,7 @@ if has model-badge; then
 fi
 if has model-pilot; then
   # Installed first: if it fails, the other selector stays on.
-  if plugin "$dest" claude-setup-kit model-pilot; then for p in $PILOT_OFF; do
+  if plugin "$dest" claude-setup-kit model-pilot && [ "$(pl_state model-pilot@claude-setup-kit)" = enabled ]; then for p in $PILOT_OFF; do
     claude plugin disable "$p" >/dev/null 2>&1 && ok "switched off $p (to go back: claude plugin enable $p, and switch Model pilot off)" || fail "could not switch off $p (run: claude plugin disable $p)"
   done; fi
   v=$(claude --version 2>/dev/null | awk '{print $1}')
@@ -641,21 +656,29 @@ if has model-pilot; then
     python3 - "$CL/settings.json" "$HANDOFF" "$CONFIRM_FABLE" "$TS" "$JEV_SHARE" <<'PY' && ok "Model pilot: fresh-chat offer $HANDOFF, ask before Fable: ${CONFIRM_FABLE:-yes}" || fail "could not save the Model pilot choices (set them in /config, under Model pilot)"
 import json, os, shutil, sys
 path, handoff, fable, ts, share = sys.argv[1:6]
+path = os.path.realpath(path)  # write through a symlinked settings.json (stow, chezmoi), never replace the link
 d = json.load(open(path)) if os.path.exists(path) else {}
 opts = d.setdefault("pluginConfigs", {}).setdefault("model-pilot@claude-setup-kit", {}).setdefault("options", {})
 want = {k: v for k, v in opts.items() if k not in ("handoff", "confirmFable", "jev")}  # defaults are absent keys
-if "pilot" not in share.split():
-    want["jev"] = False  # prompts go to TypeSafe only if the user said yes
+want["jev"] = "pilot" in share.split()  # prompts go to TypeSafe only if the user said yes
 if handoff != "auto":
     want["handoff"] = handoff
 if fable == "no":
     want["confirmFable"] = False
 if want != opts:
     if os.path.exists(path):
-        shutil.copy2(path, f"{path}.bak-kit-{ts}")
+        n, bak = 1, f"{path}.bak-kit-{ts}"
+        while os.path.exists(bak):  # never replace the pre-install copy
+            n += 1
+            bak = f"{path}.bak-kit-{ts}-{n}"
+        shutil.copy2(path, bak)
     opts.clear(); opts.update(want)
-    tmp = path + ".tmp"
-    json.dump(d, open(tmp, "w"), indent=2)
+    import tempfile
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+    with os.fdopen(fd, "w") as f:
+        json.dump(d, f, indent=2)
+    if os.path.exists(path):
+        shutil.copymode(path, tmp)  # keep its permissions (often 0600)
     os.replace(tmp, path)  # atomic, like the settings merge
 PY
   fi
@@ -670,15 +693,17 @@ if has jev; then
   # The policy is yours after the first install (thresholds, skip_paths); only sites_off is set here, from your answers.
   mkdir -p "$CL/jev"; [ -f "$CL/jev/policy.json" ] || copy_file "$KIT/files/jev/policy.json" "$CL/jev/policy.json" data keep
   # Parts the user did not agree to: listed in the policy, so jev_lib never sends for them.
-  python3 - "$CL/jev/policy.json" "$KIT/files/jev/policy.json" "$JEV_SHARE" <<'PY' && ok "Jev may send for: ${JEV_SHARE:- nothing}" || fail "could not record the Jev choices in ~/.claude/jev/policy.json"
+  python3 - "$CL/jev/policy.json" "$KIT/files/jev/policy.json" "$JEV_SHARE$([ "$JEV_HOOKS" = yes ] && echo ' hooks')" <<'PY' && ok "Jev may send for: ${JEV_SHARE:- nothing}" || fail "could not record the Jev choices in ~/.claude/jev/policy.json"
 import json, os, sys
 path, default, share = sys.argv[1], sys.argv[2], sys.argv[3].split()
 d = json.load(open(path)) if os.path.exists(path) else json.load(open(default))
-d["sites_off"] = [s for s, w in (("house-rules-recall", "recall"), ("house-rules-mine", "mine")) if w not in share]
+pairs = (("house-rules-recall", "recall"), ("house-rules-mine", "mine"), ("codegraph-gate", "code"), ("model-pilot", "pilot"),
+         ("jev-gate", "hooks"))
+d["sites_off"] = [s for s, w in pairs if w not in share]
 os.makedirs(os.path.dirname(path), exist_ok=True)
 json.dump(d, open(path + ".tmp", "w"), indent=2); os.replace(path + ".tmp", path)
 PY
-  todo "Jev: store your TypeSafe key in the macOS Keychain: security add-generic-password -s typesafe-api-key -a \"\$USER\" -w   (it prompts for the key; nothing lands in a file)."
+  todo "Jev: store your TypeSafe key in the macOS Keychain: security add-generic-password -s typesafe-api-key -a \"\$USER\" -T '' -w   (it prompts for the key; nothing lands in a file; -T '' makes macOS ask before any program reads it)."
 fi
 if has mjudge; then
   copy_file "$KIT/files/bin/mjudge" "$BIN/mjudge" exec replace
@@ -703,6 +728,9 @@ fi
 if [ "$DO_SETTINGS" = 1 ]; then
   say ""; say "Merging hooks into ~/.claude/settings.json (backup written first if anything changes):"
   MERGE=$SELECTED; [ "$JEV_HOOKS" = yes ] || MERGE=$(printf '%s' "$SELECTED" | sed 's/ jev / /')
+  if has jev && [ "$JEV_HOOKS" != yes ] && [ -f "$CL/settings.json" ]; then  # consent withdrawn: take out hooks added before
+    python3 "$KIT/lib/merge_settings.py" --remove "$CL/settings.json" "$KIT/lib/hooks.json" jev || fail "could not remove Jev's background hooks"
+  fi
   python3 "$KIT/lib/merge_settings.py" "$CL/settings.json" "$KIT/lib/hooks.json" $MERGE || fail "settings merge"
 else todo "Hooks were not added (you said no): re-run ./install.sh and say yes to activate RTK, safe delete, auto indexes and the routing card."; fi
 for id in rtk codegraph graphify safety jev mjudge; do

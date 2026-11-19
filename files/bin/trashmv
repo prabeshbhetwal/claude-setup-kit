@@ -12,7 +12,12 @@ Same day -> same date folder, and inside it the sub-folders the file came
 from (MyApp/Sources/Old/x.swift -> MyApp/<date>/Sources/Old/x.swift). Name clash -> "<name> <HHMMSS>" keeps both.
 Each move is logged to ~/_trash/<source>/moves.tsv: time, original, trash path.
 ~/_trash sits outside iCloud (only Desktop and Documents sync).
+Concurrent runs are safe: choosing the name and moving happen under a lock on ~/_trash/<source>/.lock.
+Runs on Apple's /usr/bin/python3 (3.9).
 """
+from __future__ import annotations
+
+import fcntl
 import os
 import shutil
 import subprocess
@@ -51,23 +56,27 @@ def trash(path: str, source: str | None, now: datetime) -> str:
         raise FileNotFoundError(src)
     if src == ROOT or src.startswith(ROOT + os.sep):
         raise ValueError(f"already in trash: {src}")
+    if source is not None and (not source.strip(".") or "/" in source or ".." in source):
+        raise ValueError(f"--source must be a plain folder name, not {source!r}")
     auto, top = source_of(src)
     name = source or auto
     # Keep the folders it came from: <source>/<date>/<sub/path/inside/source>.
     sub = os.path.relpath(os.path.dirname(src), top) if src != top else ""
     day = os.path.normpath(os.path.join(ROOT, name, now.strftime("%Y-%m-%d"), "" if sub.startswith("..") else sub))
     os.makedirs(day, exist_ok=True)
-    base = os.path.basename(src)
-    dest = os.path.join(day, base)
-    if os.path.lexists(dest):
-        stem, ext = os.path.splitext(base) if os.path.isfile(src) else (base, "")
-        tag = now.strftime("%H%M%S")
-        dest, n = os.path.join(day, f"{stem} {tag}{ext}"), 2
-        while os.path.lexists(dest):
-            dest, n = os.path.join(day, f"{stem} {tag}-{n}{ext}"), n + 1
-    shutil.move(src, dest)
-    with open(os.path.join(ROOT, name, "moves.tsv"), "a") as log:
-        log.write(f"{now.isoformat(timespec='seconds')}\t{src}\t{dest}\n")
+    with open(os.path.join(ROOT, name, ".lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # another trashmv must not pick the same free name before this move lands
+        base = os.path.basename(src)
+        dest = os.path.join(day, base)
+        if os.path.lexists(dest):
+            stem, ext = os.path.splitext(base) if os.path.isfile(src) else (base, "")
+            tag = now.strftime("%H%M%S")
+            dest, n = os.path.join(day, f"{stem} {tag}{ext}"), 2
+            while os.path.lexists(dest):
+                dest, n = os.path.join(day, f"{stem} {tag}-{n}{ext}"), n + 1
+        shutil.move(src, dest)
+        with open(os.path.join(ROOT, name, "moves.tsv"), "a") as log:
+            log.write(f"{now.isoformat(timespec='seconds')}\t{src}\t{dest}\n")
     return dest
 
 
@@ -123,6 +132,36 @@ def test() -> None:
         open(cfg, "w").close()
         assert trash(cfg, None, now) == os.path.join(ROOT, "claude", "2026-11-14", "x.json")
         assert len(open(os.path.join(ROOT, "Proj", "moves.tsv")).readlines()) == 3
+        for bad in ("../x", "a/b", "..", "."):
+            try:
+                trash(os.path.join(repo, "src"), bad, now)
+                raise AssertionError(f"--source {bad!r} accepted")
+            except ValueError:
+                pass
+        # concurrent runs: 8 threads trash 8 same-named files into one folder while each move is slowed
+        # (widens the pick-a-free-name/move window); none may overwrite another
+        import threading
+        import time
+        files = []
+        for i in range(8):
+            f = os.path.join(t, f"race{i}", "same.txt")  # top-level folders: all land in race/<date>/
+            os.makedirs(os.path.dirname(f))
+            with open(f, "w") as fh:
+                fh.write(str(i))
+            files.append(f)
+        real_move = shutil.move
+        shutil.move = lambda a, b: (time.sleep(0.05), real_move(a, b))[1]
+        try:
+            ths = [threading.Thread(target=trash, args=(f, "race", now)) for f in files]
+            for th in ths:
+                th.start()
+            for th in ths:
+                th.join()
+        finally:
+            shutil.move = real_move
+        kept = [os.path.join(dp, n) for dp, _, ns in os.walk(os.path.join(ROOT, "race")) for n in ns
+                if n.startswith("same")]
+        assert sorted(open(k).read() for k in kept) == sorted(str(i) for i in range(8)), kept
     print("trashmv self-check: ok")
 
 

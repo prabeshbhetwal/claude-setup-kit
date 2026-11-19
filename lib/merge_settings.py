@@ -18,6 +18,7 @@ import shutil
 import sys
 import tempfile
 import difflib
+import re
 import time
 
 
@@ -37,7 +38,7 @@ def merge(settings: dict, fragment: dict, components: list) -> list:
             for x in present:  # an older install's shorter timeout is raised, never lowered
                 if isinstance(x.get("timeout"), (int, float)) and h.get("timeout", 0) > x["timeout"]:
                     x["timeout"] = h["timeout"]
-                    changes.append(f"hook {event} timeout -> {h['timeout']}s: {x['command']}")
+                    changes.append(f"hook {event} timeout -> {h['timeout']}s: {h['command']}")  # the kit's own command, never the user's
             if present:
                 continue
             group = next((g for g in groups if g.get("matcher") == matcher), None)
@@ -50,6 +51,11 @@ def merge(settings: dict, fragment: dict, components: list) -> list:
             if k not in env:
                 env[k] = v
                 changes.append(f"env {k}={v}")
+        allow = settings.setdefault("permissions", {}).setdefault("allow", []) if part.get("allow") else None
+        for rule in part.get("allow", []):
+            if rule not in allow:
+                allow.append(rule)
+                changes.append(f"allow {rule}")
         deny = settings.setdefault("permissions", {}).setdefault("deny", []) if part.get("deny") else None
         for rule in part.get("deny", []):
             if rule not in deny:
@@ -73,9 +79,9 @@ def remove(settings: dict, fragment: dict, components: list) -> list:
     for comp in components:
         for h in fragment.get(comp, {}).get("hooks", []):
             event = h["event"]
-            match = h.get("match", h["command"])
+            exact = h["command"].replace("__RTK__", os.environ.get("KIT_RTK") or "rtk")
             for g in hooks.get(event, []):
-                keep = [x for x in g.get("hooks", []) if match not in x.get("command", "")]
+                keep = [x for x in g.get("hooks", []) if x.get("command", "") != exact]  # exact: my-wrapper jev-gate is yours
                 if len(keep) != len(g.get("hooks", [])):
                     changes.append(f"removed hook {event}: {h['command']}")
                     g["hooks"] = keep
@@ -87,8 +93,34 @@ def remove(settings: dict, fragment: dict, components: list) -> list:
     return changes
 
 
+SECRET_KEY = re.compile(r"(key|token|secret|passw|credential|auth)", re.I)
+
+
+def redact(x, key=""):
+    """A copy with secret-looking values replaced, for printing only (the file itself is never redacted)."""
+    if isinstance(x, dict):
+        return {k: redact(v, k) for k, v in x.items()}
+    if isinstance(x, list):
+        return [redact(v, key) for v in x]
+    if isinstance(x, str) and (SECRET_KEY.search(key) or re.search(r"(sk-|sk_|ghp_|github_pat_|xox[bp]-|AKIA)[\w-]{8,}", x)):
+        return "<hidden>"
+    if isinstance(x, str) and re.search(r"(?:secret|token|passw|api[_-]?key|credential)\w{0,40}=", x, re.I):
+        return "<command hidden: it contains a secret-looking value>"  # whole, because a quoted value can hold spaces
+    return x
+
+
+def unique_backup(path: str) -> str:
+    """SETTINGS.bak-kit-<time>, with -2, -3 ... when one exists: the pre-install copy is never replaced by a later one."""
+    base, n = f"{path}.bak-kit-{time.strftime('%Y%m%d-%H%M%S')}", 1
+    name = base
+    while os.path.exists(name):
+        n += 1
+        name = f"{base}-{n}"
+    return name
+
+
 def show_diff(before: dict, after: dict, path: str) -> None:
-    a, b = (json.dumps(x, indent=2).splitlines() for x in (before, after))
+    a, b = (json.dumps(redact(x), indent=2).splitlines() for x in (before, after))
     for line in difflib.unified_diff(a, b, f"{path} (now)", f"{path} (after)", lineterm="", n=2):
         print("    " + line)
 
@@ -107,7 +139,7 @@ def main(path: str, frag_path: str, components: list, mode: str = "add") -> None
     if mode == "dry-run":
         return
     if os.path.exists(path):
-        shutil.copy2(path, f"{path}.bak-kit-{time.strftime('%Y%m%d-%H%M%S')}")
+        shutil.copy2(path, unique_backup(path))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
     with os.fdopen(fd, "w") as f:
@@ -146,12 +178,31 @@ def selftest() -> None:
     assert s3["sandbox"] == {"enabled": False}, "an existing sandbox choice must be kept"
     assert merge(s3, f3, ["g"]) == [], "deny merge must be idempotent"
     r = {"a": {"hooks": [{"event": "Stop", "type": "command", "command": "x", "match": "x"}]}}
-    s5 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}, {"type": "command", "command": "x"}]}]}}
-    assert len(remove(s5, r, ["a"])) == 1 and s5["hooks"]["Stop"][0]["hooks"] == [{"type": "command", "command": "mine"}], s5
+    s5 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}, {"type": "command", "command": "x"}, {"type": "command", "command": "my-wrapper x --safe"}]}]}}
+    assert len(remove(s5, r, ["a"])) == 1 and s5["hooks"]["Stop"][0]["hooks"] == [{"type": "command", "command": "mine"}, {"type": "command", "command": "my-wrapper x --safe"}], s5
     assert remove(s5, r, ["a"]) == [], "removing twice changes nothing"
     s6 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}, "env": {"K": "1"}}
     remove(s6, r, ["a"])
     assert s6 == {"env": {"K": "1"}}, s6
+    k = "ANTHROPIC_API_" + "KEY"  # built at run time so the repo's secret scan does not flag this test
+    shown = redact({"env": {k: "abc", "COGNEE_BACKEND": "local"}, "x": "gh" + "p_" + "abcdefghijklmnop"})
+    assert shown == {"env": {k: "<hidden>", "COGNEE_BACKEND": "local"}, "x": "<hidden>"}, shown
+    s7 = {}
+    assert merge(s7, {"g": {"allow": ["Read(.env.example)"]}}, ["g"]) == ["allow Read(.env.example)"] and merge(s7, {"g": {"allow": ["Read(.env.example)"]}}, ["g"]) == []
+    s8 = {"permissions": {"deny": ["Read(.env.*)", "Read(./mine)"]}}  # your own broad rule stays
+    assert merge(s8, {"g": {"deny": ["Read(.env.local)"]}}, ["g"]) == ["deny Read(.env.local)"]
+    assert s8["permissions"]["deny"] == ["Read(.env.*)", "Read(./mine)", "Read(.env.local)"], s8
+    k2 = "TOK" + "EN_SEC" + "RET"
+    s9 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": f"x {k2}=hunter2hunter2", "timeout": 5}]}]}}
+    out9 = merge(s9, {"t": {"hooks": [{"event": "Stop", "type": "command", "command": "x", "timeout": 15, "match": "x"}]}}, ["t"])
+    assert out9 and "hunter2" not in " ".join(out9), out9  # a change summary never reprints an existing command
+    import time as _t
+    t0 = _t.perf_counter()
+    redact({"command": "echo " + "a" * 20000, "x": "token" * 5000})
+    assert _t.perf_counter() - t0 < 0.5, "redacting a long value must be linear"
+    assert "hunter2" not in json.dumps(redact({"hooks": {"Stop": [{"hooks": [{"command": f"x {k2}=hunter2hunter2"}]}]}})), "nor does the diff"
+    shown2 = json.dumps(redact({"command": "DB_PASS" + 'WORD="blue river synthetic" python3 hook.py'}))
+    assert "river" not in shown2 and "synthetic" not in shown2, shown2  # a quoted value with spaces is hidden whole
     print("selftest ok")
 
 

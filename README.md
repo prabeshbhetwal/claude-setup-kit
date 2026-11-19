@@ -35,7 +35,7 @@ You need the Claude app (or a Claude Code plan) and an internet connection. Ever
 4. **It asks about anything that depends on something else.** Example: "Auto index hooks only works together with CodeGraph. Add CodeGraph as well?" Saying no leaves out the tool that needed it.
 5. **It asks before each kind of change, and says why:**
    - writing the rules file `~/.claude/CLAUDE.md` (it tells Claude when to use each tool). If you already have one, yours is kept and the kit's version is saved next to it as `CLAUDE.md.kit-new`;
-   - adding the kit's hooks to `~/.claude/settings.json` (it first shows you the exact lines that would change; backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised);
+   - adding the kit's hooks to `~/.claude/settings.json` (it first shows you the exact lines that would change, with secret-looking values hidden; backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised);
    - how often you want the token report: weekly, fortnightly, monthly or off.
 6. **It shows the full list and asks "Go ahead?"** Nothing has changed up to this point. Saying no stops cleanly.
 7. **It checks your computer for what the tools need** and offers to install anything missing, one at a time, with a plain explanation:
@@ -95,8 +95,8 @@ Pick the tiers you want; `--list` prints every tool.
 | `--title-recheck 5`, `--title-spelling au` | Session titles: prompts between title checks (default 5), spelling `au` (default), `us` or `none` |
 | `--caveman-mode lite` | Caveman strength: lite, full (default), ultra (fragments only) |
 | `--uninstall session-title` | Take Dynamic session titles out again: its hook entries, script and settings file |
-| `--jev-share pilot,recall,mine` | Which parts may send text to TypeSafe through Jev (default: none). See [What leaves your Mac](#what-leaves-your-mac) |
-| `--jev-hooks yes` | Add Jev's background measuring hooks (default no) |
+| `--jev-share pilot,recall,mine,code` | Which parts may send text to TypeSafe through Jev (default: none): `pilot` Model pilot, `recall` and `mine` house rules, `code` the CodeGraph gate. See [What leaves your Mac](#what-leaves-your-mac) |
+| `--jev-hooks yes` | Add Jev's background hooks, `jev-gate` included (default no; `no` on a later run takes them out) |
 | `--confirm-fable no` | Model pilot: `yes` (default) asks before the pilot runs a prompt on Fable and shows the cost against Opus; `no` lets it run without asking |
 | `--handoff 500k` | Model pilot: when to offer a fresh chat (`auto`, `250k`, `500k`, `750k`, `never`) |
 | `--report week` | Token report: `week`, `fortnight`, `month` (default) or `off` |
@@ -106,24 +106,24 @@ Pick the tiers you want; `--list` prints every tool.
 
 | Tier | Tool | In plain words | Needs |
 |---|---|---|---|
-| core | Caveman | Short, clipped replies; code and errors stay exact | — |
-| core | i-have-adhd | Next action first, then short numbered steps | — |
-| core | Ponytail | Smallest change that fully fixes the problem | — |
+| core | Caveman | Short, clipped replies; code and errors stay exact | Nothing |
+| core | i-have-adhd | Next action first, then short numbered steps | Nothing |
+| core | Ponytail | Smallest change that fully fixes the problem | Nothing |
 | core | context-mode | Big command output is handled off to the side; only the answer comes back | Node.js |
 | core | RTK | Shortens every terminal command's output, keeps the facts | Homebrew, or its own install script |
 | core | CodeGraph | A map of your code: where things are, what calls what | Node.js |
 | core | Graphify | A plain-language overview of a project and its docs | uv |
-| core | Safe delete | Blocks `rm` and `rmdir` (also behind `sudo`, `time`, `nice`, `bash -c`); files go to `~/_trash/` instead. `find -delete`, `unlink` and `rsync --delete` are not caught. Also raises every plugin's hook time limit to 15 s (backs up each file it changes) | — |
-| core | Auto index hooks | Keeps the CodeGraph/Graphify maps fresh in the background, and makes Claude ask CodeGraph first: a code search with Grep is turned back until CodeGraph has been asked once (twice at most per session). Adds the index folders to each repo's `.git/info/exclude` | — |
-| core | Token measuring | A record of every turn's tokens, a 30-day baseline, and a weekly, fortnightly or monthly report | — |
+| core | Safe delete | Blocks `rm` and `rmdir` (also behind `sudo`, `time`, `nice`, `bash -c`); files go to `~/_trash/` instead. `find -delete`, `unlink` and `rsync --delete` are not caught. Also raises every plugin's hook time limit to 15 s (backs up each file it changes) | Nothing |
+| core | Auto index hooks | Keeps the CodeGraph/Graphify maps fresh in the background, and makes Claude ask CodeGraph first: a code search with Grep is turned back until CodeGraph has been asked once (twice at most per session). Adds the index folders to each repo's `.git/info/exclude` | Nothing |
+| core | Token measuring | A record of every turn's tokens, a 30-day baseline, and a weekly, fortnightly or monthly report. Also the Monday scorecard and house rules: a hook on every prompt, and Monday mining of your chats (on your Mac unless you let Jev help) | Nothing |
 | core | Rules file + guides | Tells Claude when to use each tool you installed | 4 placeholders |
-| guard | Deny rules | Claude's file tools may not read `.env` files, `*.pem` keys, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`; `git reset --hard`, `git clean`, force pushes, `git checkout -- .`, `git restore .`, `git stash clear` and reading Keychain passwords are refused, in any permission mode. A shell command like `cat .env` is only stopped with the Bash sandbox on too | — |
+| guard | Deny rules | Claude's file tools may not read `.env` files, `*.pem` keys, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`; `git reset --hard`, `git clean`, force pushes, `git checkout -- .`, `git restore .`, `git stash clear` and reading Keychain passwords are refused, in any permission mode. `.env.example` stays readable (an allow rule is added for it). Best effort: the rules match how a command is written, so a differently written one can get past them, and a shell command like `cat .env` is only stopped with the Bash sandbox on too | Nothing |
 | guard | Bash sandbox | Claude Code's own sandbox: shell commands write only inside the project. Off unless ticked | macOS |
 | guard | Done checks | After each edit runs the project's `.claude/lint`; before finishing runs `.claude/verify` (your tests). A failure sends Claude back to fix it. Runs only in projects you allow: `python3 ~/.claude/hooks/verify-done.py allow` in the project folder | A `.claude/verify` per project |
 | memory | Supermemory | Remembers decisions across chats | Supermemory account |
 | memory | Cognee (local) | Private knowledge map of your chats, on your computer; Claude and Codex can share it | Your Claude plan (no key) or an LLM API key (paid per use); Python 3.10+ |
-| memory | remember | Session diary with a summary at start | — |
-| routing | Routing card + lean agents | Cheapest model that can do each task; small helper agents | — |
+| memory | remember | Session diary with a summary at start | Nothing |
+| routing | Routing card + lean agents | Cheapest model that can do each task; small helper agents | Nothing |
 | routing | Model pilot (macOS only) | Before each prompt, picks the cheapest model and effort that will do the job; shows what really ran | Recent Claude Code; Jev optional |
 | routing | Model badge (macOS only) | A label with the model name beside each helper agent's row | Recent Claude Code |
 | judge | Jev | Fast yes/no triage over long lists. What it may send is asked separately: see [What leaves your Mac](#what-leaves-your-mac) | TypeSafe key (paid) |
@@ -137,7 +137,7 @@ Each tool has one job, and the rules file gives each one a trigger, so they do n
 - **RTK and context-mode** both trim command output. RTK shortens every command automatically; context-mode takes the big outputs and analysis off to the side.
 - **CodeGraph and Graphify** both map a project. CodeGraph answers "where is this function, what calls it"; Graphify answers "how does this project fit together".
 - **Grill Me and Deliberation** both test a plan. Grill Me questions you about your project; Deliberation asks other models to judge the plan. Use Grill Me first, then Deliberation for one-way, high-stakes calls.
-- **Routing card and Model pilot** both deal with models. With Model pilot on, it alone picks the chat's model and offers the fresh chat; the routing card keeps only the rules for helper agents. Without Model pilot, the card's own rules apply (fresh chat around 250k tokens).
+- **Routing card and Model pilot** both deal with models. With Model pilot on, it alone picks the chat's model and offers the fresh chat; the routing card keeps only the rules for helper agents. Without Model pilot, the card's own rule applies: move to a fresh chat when the turns still to come would cost more in a big chat than a summary costs (under about 150k tokens stay; at 250k if more than about 14 turns remain, at 430k if more than about 5; always before about 900k).
 - **Supermemory, Cognee and remember** are memory with different jobs: Supermemory for decisions and preferences across chats and devices; Cognee for a local knowledge map that Codex can share; remember for picking up where the last session left off.
 
 The token report lists any installed tool with no sign of use in its period, so you can drop what you do not use.
@@ -148,7 +148,7 @@ Every key, where it goes, and what still works without it: [.env.example](.env.e
 
 The rule behind this group: **can it be taken back?** Code edits can (git), so Claude does them freely. Leaked secrets, wiped work and force-pushed history can't, so they become deny rules. Claude Code applies deny rules in every permission mode, auto and bypass included.
 
-- **Deny rules** are added to `permissions.deny` in `~/.claude/settings.json`; your own rules are kept. Add more there yourself (for example `"Read(./secrets/**)"`).
+- **Deny rules** are added to `permissions.deny` in `~/.claude/settings.json`; your own rules are kept. Add more there yourself (for example `"Read(./secrets/**)"`). The rules name the real env files (`.env`, `.env.local`, `.env.production` and the like), so `.env.example` stays readable. If you added a broader `Read(.env.*)` rule yourself, it also blocks `.env.example`: remove it if you want that file readable. The command rules are best effort: they match the shape of a command (`git clean`, `git push --force`), so the same act written another way (other flags, a script, another tool) is not caught. Treat them as a seat belt, and use the Bash sandbox and backups for real protection.
 - **Hook time limits:** each session start raises every plugin hook to at least 15 s, so busy machines don't skip them ("A hook didn't answer in time").
 - **Bash sandbox:** off unless you tick it. Some installers and tools that write outside the project will ask or fail inside it; `/sandbox` changes it any time.
 - **Done checks** do nothing until a project opts in. Add an executable `.claude/verify` to a project, for example:
@@ -169,7 +169,7 @@ An admin can set defaults for everyone in `managed-settings.json` (see Claude Co
 
 A mod for Claude Code on macOS, in [`mods/model-pilot`](mods/model-pilot/README.md). Before each prompt a small, fast judge decides which model (Haiku, Sonnet, Opus, Fable) and effort the task needs, and Claude Code runs the turn on that. A row above the prompt shows the pick and the model that actually ran. Your own choice always wins: name a model in the prompt, or pick one in the menu, and the pilot leaves it alone.
 
-- **Judges, in order:** Jev if you have it, then Haiku, then built-in rules. Privacy mode uses the rules only.
+- **Judges, in order:** Jev if you have it and allowed it (off by default; the plugin option `jev`), then Haiku, then built-in rules. Privacy mode uses the rules only.
 - **Fresh chat offer.** At a chat size you choose (the installer asks: auto, 250k, 500k, 750k or never) it offers to write a summary so you can continue in a new chat. It only offers.
 - **Only one model selector at a time.** If another one is on, the installer asks before switching it off. With no one to ask (`--yes`, `--tiers`), it leaves Model pilot out instead.
 - **Accuracy, cost and limits:** [`mods/model-pilot/README.md`](mods/model-pilot/README.md).
@@ -179,13 +179,29 @@ A mod for Claude Code on macOS, in [`mods/model-pilot`](mods/model-pilot/README.
 - **Third-party tools** come from their own sources: Claude Code plugin marketplaces, npm, PyPI (via uv), or Homebrew. Nothing third-party is bundled in this repo.
 - **The kit's own scripts** go to `~/.local/bin` and `~/.claude/hooks`. A differing file is backed up to `*.bak-kit-<time>` first.
 - **Your own docs are never overwritten.** If `CLAUDE.md`, a guide or an agent already exists and differs, the kit's version lands next to it as `*.kit-new`.
-- **`~/.claude/settings.json` is merged, never replaced.** Backed up to `settings.json.bak-kit-<time>` first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised. Model pilot's choices go under `pluginConfigs`.
+- **`~/.claude/settings.json` is merged, never replaced.** Backed up to `settings.json.bak-kit-<time>` first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised. Model pilot's choices go under `pluginConfigs`, written so that a symlinked `settings.json` stays a symlink and keeps its permissions.
 - **Token report**: a launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.token-report.plist`) that checks daily at 09:00 and writes a report when your chosen period ends. With off it still runs daily and does nothing, so `token-report.py --set month` turns it back on. A Stop hook (`token-ledger.py`) adds one line per finished turn to `~/.claude/cache/token-compare/ledger.jsonl`.
 - **Weekly scorecard**: a second launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.setup-monitor.plist`) that runs Mondays at 08:15, whatever you chose for the token report, and writes to `~/.claude/monitor/`.
 - **Session titles** (only if ticked): `~/.claude/hooks/session-title.py`, its settings in `~/.claude/kit/session-title.json`, and two hook entries in `settings.json`; per-chat notes go in `~/.claude/cache/session-title/`.
 - **A record** of what was installed in `~/.claude/kit/installed`; the doctor checks exactly that list.
 
-To undo a change: restore the `*.bak-kit-<time>` copy next to the file, remove the plugin with `claude plugin uninstall <name>`, and remove the launchd agents (`launchctl bootout gui/$(id -u)/com.claude-setup-kit.token-report`, the same with `.setup-monitor`, then delete the two plists in `~/Library/LaunchAgents`). Also: `claude mcp remove codegraph -s user` if you installed CodeGraph, `uv tool uninstall graphifyy` for Graphify, and delete the line for each removed tool from `~/.claude/kit/installed` so the doctor stops checking it. Everything Claude "deleted" sits in `~/_trash/<project>/<date>/`; it is never emptied for you, so look there now and then and remove old date folders yourself.
+### Undoing it
+
+There is no one-step uninstall yet (only `--uninstall session-title`). Take out what you want, piece by piece:
+
+- **Settings and files:** restore the `*.bak-kit-<time>` copy next to the file. A `settings.json` backup is a snapshot: restoring it also drops anything you or other tools changed since, so compare the two first and remove only the kit's lines if in doubt.
+- **Plugins:** `claude plugin uninstall <name>`. For Model pilot and Model badge, then `claude plugin marketplace remove claude-setup-kit` and move `~/.claude/local-marketplaces/claude-setup-kit` to the bin.
+- **Plugin hook time limits:** the rm blocker's start-up hook raised them and kept each plugin's original file once, as `<file>.bak-kit` beside it. Take that hook out of `settings.json` first (or it raises them again), then copy each `.bak-kit` back. A plugin update also replaces them.
+- **Scheduled jobs:** `launchctl bootout gui/$(id -u)/com.claude-setup-kit.token-report`, the same with `.setup-monitor`, then remove the two plists in `~/Library/LaunchAgents`.
+- **CodeGraph:** `claude mcp remove codegraph -s user`, then `npm uninstall -g --prefix ~/.local @colbymchenry/codegraph`.
+- **Graphify:** `uv tool uninstall graphifyy`, or `pipx uninstall graphifyy` if the installer used pipx (it says which), and the skill folder `~/.claude/skills/graphify`.
+- **RTK:** `brew uninstall rtk`, or remove `~/.local/bin/rtk` if its own install script put it there.
+- **Kit scripts:** `trashmv`, `jev`, `jev-gate` and `mjudge` in `~/.local/bin`; the kit's hooks in `~/.claude/hooks`; agents, guides and rules in `~/.claude/agents`, `~/.claude/guides` and `~/.claude/rules`; the weekly scorecard and house rules in `~/.claude/monitor` and `~/.claude/house-rules`; Jev's policy and log in `~/.claude/jev`; the TypeSafe key with `security delete-generic-password -s typesafe-api-key`.
+- **Small settings:** Caveman's mode in `~/.config/caveman/config.json`; the i-have-adhd always-on flag `~/.claude/.i-have-adhd-always`; Grill Me's skills in `~/.claude/skills/` (`grill-me`, `grilling`, `grill-with-docs`).
+- **The record:** delete the line for each removed tool from `~/.claude/kit/installed` so the doctor stops checking it.
+
+Everything Claude "deleted" sits in `~/_trash/<project>/<date>/`; it is never emptied for you, so look there now and then and remove old date folders yourself.
+
 ## Token report
 
 The installer records your last 30 days of Claude Code use as a baseline, then a hook writes one line per finished turn: tokens used and tokens saved. A report arrives weekly, fortnightly or monthly (your choice at install; off is allowed), and a macOS notification says when it is ready. Everything runs locally and uses no Claude tokens.
@@ -213,7 +229,7 @@ python3 ~/.claude/monitor/bin/house-rules.py review
 python3 ~/.claude/monitor/bin/house-rules.py approve <id>
 ```
 
-Approved rules come back only when they fit the prompt, and are silent otherwise.
+Approved rules come back only when they fit the prompt, and are silent otherwise: a small hook (`house-rules-recall.py`) checks every prompt for that. The Monday mining reads your local chat logs on your Mac; it and the recall hook send text to TypeSafe only if you said yes to them under Jev (see [What leaves your Mac](#what-leaves-your-mac)).
 
 ## What it costs to run
 
@@ -228,23 +244,28 @@ Approved rules come back only when they fit the prompt, and are silent otherwise
 
 ## What leaves your Mac
 
-Everything else in the kit runs locally. These tools send text elsewhere, and only if you ticked them:
+Claude Code itself sends your chats to Anthropic, as it always does. On top of that, the tools below send text off your Mac, and only if you ticked them. Apart from Model pilot, mjudge and the Jev rows, the kit's own scripts work on your Mac only. Plugins by other authors are listed as far as this kit knows; their own docs are the final word.
 
 | Tool | Sends | To |
 |---|---|---|
-| Supermemory | Memories it saves from your chats | Supermemory |
+| Supermemory | Memories it saves from your chats, and your prompts as search queries for its recall. This is the plugin's own behaviour; see its docs | Supermemory |
+| Cognee | The chat text it captures (your prompts and Claude's answers), so a model can build the knowledge map. The map itself stays on your Mac | Anthropic through the `claude` command on your Claude plan, or the provider of the `LLM_API_KEY` in `~/.cognee/.env` |
 | Deliberation | The question or plan you ask about | The AI providers you set up (OpenAI, Google, xAI, OpenRouter) |
-| mjudge | The media files you ask about | Google Gemini |
-| Model pilot | Each prompt and a digest of recent turns, to pick a model: to Haiku on your Claude plan; to TypeSafe only if you answered yes to "Model pilot" under Jev | Anthropic, or TypeSafe |
-| Jev, house rules recall | The first 200 characters of a prompt (emails, links, paths removed) when a saved rule might fit. Only if you said yes | TypeSafe |
-| Jev, house rules mining | On Mondays, last week's sentences where you corrected Claude (redacted). Only if you said yes | TypeSafe |
-| Jev background hooks | Shell commands, up to 300 lines of large tool output with your last prompt, email sender, subject and snippet, helper agents' reports. Only if you said yes (`--jev-hooks yes`) | TypeSafe |
+| mjudge | The media files you ask about; PNG and JPG files also go to TypeSafe through Jev | Google Gemini, and TypeSafe |
+| Model pilot | Each prompt and a digest of recent turns, to pick a model: to Haiku on your Claude plan; to TypeSafe only if you answered yes to "Model pilot" under Jev (`--jev-share pilot`) | Anthropic, or TypeSafe |
+| Jev, Claude's own triage | Whatever Claude pipes into `jev` under the rules file: log lines, search results, diffs, file lists or file text | TypeSafe |
+| Jev, CodeGraph gate | The first 3,000 characters of a prompt that looks like a code question, to confirm it is one. Only if you said yes (`--jev-share code`) | TypeSafe |
+| Jev, house rules recall | The first 200 characters of a prompt (emails, links, paths removed) when a saved rule might fit. Only if you said yes (`--jev-share recall`) | TypeSafe |
+| Jev, house rules mining | On Mondays, last week's sentences where you corrected Claude (redacted). Only if you said yes (`--jev-share mine`) | TypeSafe |
+| Jev background hooks | Shell commands, up to 300 lines of large tool output with your last prompt, email sender, subject and snippet, helper agents' reports, and (through `jev-gate`, when a skill with "review" in its name runs) up to 60,000 characters of the current diff plus the last commit message. Only if you said yes (`--jev-hooks yes`) | TypeSafe |
 
-Jev never sends text that looks like a password or key. To keep a folder out entirely, add it to `skip_paths` in `~/.claude/jev/policy.json`; Model pilot has its own privacy switch and private-folders list in its settings. Jev's local log (`~/.claude/jev/decisions.jsonl`) keeps short previews of what it judged and is capped at about 5 MB.
+Every Jev use other than Claude's own triage is off until you say yes. Saying no on a later run takes the background hooks out again, and they also check your answer each time they run. Jev never sends text that looks like a password or key. To keep a folder out, add it to `skip_paths` in `~/.claude/jev/policy.json`: `jev` itself checks it against the folder it is run in (the session folder for hooks and plugins; the image's real folder for mjudge), so it covers Claude's triage, mjudge's Jev step and every hook. Text piped in from another folder is not checked, so run triage from inside the project it concerns. If `policy.json` is missing or damaged, every optional Jev use stays off; `enabled: false` there turns Jev off everywhere. Model pilot has its own privacy switch and private-folders list in its settings. Jev's local log (`~/.claude/jev/decisions.jsonl`) keeps short previews of what it judged and is capped at about 5 MB.
+
+The TypeSafe key lives in the macOS Keychain. For a stricter setup, create the item with no trusted apps, so macOS asks you before anything reads it: `security add-generic-password -s typesafe-api-key -a "$USER" -T '' -w` (it prompts for the key). macOS then asks when Jev reads it: Allow asks again next time, Always Allow lets that reader in silently from then on.
 
 ## Known limits
 
-- **Hooks run on every prompt and command.** Depending on what you tick, each prompt starts up to three small Python hooks and each shell command up to three (RTK, the rm blocker, the index check). Each takes a fraction of a second; the total has not been measured on other machines.
+- **Hooks run on every prompt and command.** Depending on what you tick, the kit starts up to four small hooks on each prompt (the CodeGraph gate, the index check, house rules recall, session titles) and up to three before each shell command (RTK, the rm blocker, the index check). With Jev's background hooks on, add one more before each shell command and one after it and other tool calls. Plugins (Supermemory, Caveman, Cognee and others) run hooks of their own on top. Each takes a fraction of a second; the total has not been measured on other machines.
 - **No keyboard, no choice.** Run without a terminal (for example by Claude) and with no options, the installer stops and asks for `--yes`, `--tiers` or `--only` instead of guessing.
 
 - **Tested on macOS only.** Windows and Linux are not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
@@ -275,4 +296,4 @@ This repo: MIT ([LICENSE](LICENSE)). Installed from their own sources:
 
 ## Contributing
 
-Run `./scan.sh` before every commit. Before publishing a fork, also run `./scan.sh --also "<your name>" --also "<your email>"`. Test installs only in a throw-away home folder: `env -i HOME=$(mktemp -d) PATH=/usr/bin:/bin:/opt/homebrew/bin KIT_RTK_METHOD=script ./install.sh --yes`.
+Run `./scan.sh` before every commit. Before publishing a fork, also run `./scan.sh --also "<your name>" --also "<your email>"`. Test installs only in a throw-away home folder, for example `env -i HOME=$(mktemp -d) PATH=/usr/bin:/bin:/opt/homebrew/bin ./install.sh --only safety`. Tools that install plugins (most of the core tier, so `--yes` too) also need the `claude` command on that `PATH`: add the folder it lives in (`dirname "$(command -v claude)"`), or the installer stops and lists it as missing.

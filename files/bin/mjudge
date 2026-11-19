@@ -150,6 +150,9 @@ def ask_gemini(kind, text, path, data, block, mime, context, opts, levels):
 
 
 def ask_jev(kind, text, path, data, mime, context, opts, levels):
+    here, real = os.path.dirname(os.path.abspath(path)), os.path.dirname(os.path.realpath(path))
+    if not (JEV.policy_allows("mjudge", here) and JEV.policy_allows("mjudge", real)):  # as written and as resolved: a link into a skipped folder counts
+        raise Unavailable("Jev is off for this folder or for mjudge in ~/.claude/jev/policy.json")
     data = fit_for_jev(path, data)
     ref = f"img-{uuid.uuid4().hex[:12]}"
     state = {"item": ref}
