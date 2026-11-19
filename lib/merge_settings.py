@@ -38,7 +38,7 @@ def merge(settings: dict, fragment: dict, components: list) -> list:
             for x in present:  # an older install's shorter timeout is raised, never lowered
                 if isinstance(x.get("timeout"), (int, float)) and h.get("timeout", 0) > x["timeout"]:
                     x["timeout"] = h["timeout"]
-                    changes.append(f"hook {event} timeout -> {h['timeout']}s: {x['command']}")
+                    changes.append(f"hook {event} timeout -> {h['timeout']}s: {h['command']}")  # the kit's own command, never the user's
             if present:
                 continue
             group = next((g for g in groups if g.get("matcher") == matcher), None)
@@ -51,11 +51,6 @@ def merge(settings: dict, fragment: dict, components: list) -> list:
             if k not in env:
                 env[k] = v
                 changes.append(f"env {k}={v}")
-        old = settings.get("permissions", {}).get("deny", [])
-        for rule in part.get("retire_deny", []):  # rules an earlier kit version added and this one no longer wants
-            if rule in old:
-                old.remove(rule)
-                changes.append(f"retired deny {rule}")
         allow = settings.setdefault("permissions", {}).setdefault("allow", []) if part.get("allow") else None
         for rule in part.get("allow", []):
             if rule not in allow:
@@ -182,9 +177,13 @@ def selftest() -> None:
     assert shown == {"env": {k: "<hidden>", "COGNEE_BACKEND": "local"}, "x": "<hidden>"}, shown
     s7 = {}
     assert merge(s7, {"g": {"allow": ["Read(.env.example)"]}}, ["g"]) == ["allow Read(.env.example)"] and merge(s7, {"g": {"allow": ["Read(.env.example)"]}}, ["g"]) == []
-    s8 = {"permissions": {"deny": ["Read(.env.*)", "Read(./mine)"]}}
-    assert merge(s8, {"g": {"retire_deny": ["Read(.env.*)"], "deny": ["Read(.env.local)"]}}, ["g"]) == ["retired deny Read(.env.*)", "deny Read(.env.local)"]
-    assert s8["permissions"]["deny"] == ["Read(./mine)", "Read(.env.local)"], s8
+    s8 = {"permissions": {"deny": ["Read(.env.*)", "Read(./mine)"]}}  # your own broad rule stays
+    assert merge(s8, {"g": {"deny": ["Read(.env.local)"]}}, ["g"]) == ["deny Read(.env.local)"]
+    assert s8["permissions"]["deny"] == ["Read(.env.*)", "Read(./mine)", "Read(.env.local)"], s8
+    k2 = "TOK" + "EN_SEC" + "RET"
+    s9 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": f"x {k2}=hunter2hunter2", "timeout": 5}]}]}}
+    out9 = merge(s9, {"t": {"hooks": [{"event": "Stop", "type": "command", "command": "x", "timeout": 15, "match": "x"}]}}, ["t"])
+    assert out9 and "hunter2" not in " ".join(out9), out9  # a change summary never reprints an existing command
     print("selftest ok")
 
 

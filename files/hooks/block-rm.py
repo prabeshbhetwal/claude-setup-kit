@@ -41,7 +41,9 @@ def is_temp(path):
     if UNRESOLVED.search(path):
         return False  # $VAR, glob, brace or backtick: the shell decides, so the hook cannot vouch for it
     p = os.path.normpath(path)  # /tmp/../etc/x is /etc/x, not a temp path
-    real = os.path.join(os.path.realpath(os.path.dirname(p)), os.path.basename(p))  # /tmp/link -> a folder outside /tmp
+    # Resolve the path as written: a symlink in the middle is followed BEFORE any `..` (/tmp/link/../x leaves /tmp when link does).
+    base = os.path.basename(path.rstrip("/"))
+    real = os.path.realpath(path) if base in ("", ".", "..") else os.path.join(os.path.realpath(os.path.dirname(path.rstrip("/")) or "."), base)
     return p.startswith(TEMP_PREFIXES) and real.startswith(TEMP_PREFIXES)
 
 
@@ -120,6 +122,12 @@ def test():
     finally:
         os.unlink(link)
         os.rmdir(base)
+    import tempfile
+    d = tempfile.mkdtemp(prefix="rm-link-")
+    os.symlink("/etc", os.path.join(d, "link"))  # a link under /tmp that leads out of it
+    assert blocked(f"rm {d}/link/hosts"), "a symlink out of /tmp"
+    assert blocked(f"rm -rf {d}/link/../important"), "the link is followed before .., so this leaves /tmp"
+    assert not blocked(f"rm {d}/plain.txt")
     print("block-rm self-check: ok")
 
 

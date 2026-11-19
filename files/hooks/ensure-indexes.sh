@@ -54,14 +54,14 @@ if [ -n "$ex" ]; then
 fi
 
 # mkdir is atomic: a second session opening the same repo won't start a duplicate build.
-# A lock older than 45 min (past the 40 min of timeouts below) belongs to a killed build; clear it so refreshes never stop for good.
+# A lock older than 70 min (past the 60 min worst case of two chained 30 min builds) belongs to a killed build; clear it so refreshes never stop for good.
 # Every command is wrapped in timeout (600 s sync, 1800 s build): a hung tool exits 124, the stamp
 # stays unwritten, and the next turn retries: nothing can block refreshes forever.
 # One lock per repo for init, build and refresh: two of them must never run at once on the same repo.
 build() { # $1 = shell command (runs in the repo; reads TO CG GF sig stamp from the environment)
   export TO CG GF sig stamp r
   lock="$logdir/$key.lock"
-  find "$lock" -maxdepth 0 -mmin +45 -exec rmdir {} \; 2>/dev/null
+  find "$lock" -maxdepth 0 -mmin +70 -exec rmdir {} \; 2>/dev/null
   mkdir "$lock" 2>/dev/null || return 0
   if [ "$mode" = fg ]; then   # fg mode: wait, report failure via exit code
     ( cd "$r" && { echo "[$(date '+%F %T')] $1"; sh -c "$1"; } >> "$log" 2>&1 ) </dev/null; rc=$?

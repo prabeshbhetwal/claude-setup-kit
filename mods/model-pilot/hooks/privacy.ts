@@ -30,5 +30,6 @@ export async function isPrivateHere($: EngineInterface, o: Pick<Options, 'privac
   const list = folderList(o.privateFolders, home)
   const r = await $.process.run(['/bin/sh', '-c', REAL, 'sh', cwd, ...list], { timeoutMs: 3000 }).catch(() => undefined)
   const real = (r?.stdout ?? '').split('\n').filter(Boolean)
-  return real.length === list.length + 1 && isPrivateFolder(real[0] ?? '', real.slice(1).join('\n'), home)
+  if (real.length !== list.length + 1) return true // could not resolve: fail closed, use the local rules only
+  return isPrivateFolder(real[0] ?? '', real.slice(1).join('\n'), home)
 }

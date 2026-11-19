@@ -179,7 +179,7 @@ def record(session, transcript, now=None, home=None, ledger=LEDGER, rtk=None, pi
     if not t or not t[1]:
         return None
     start, n, ctx, out, fams, cmds = t
-    line = {"ts": now.isoformat()[:19] + "Z", "session": session, "start": start.astimezone(timezone.utc).isoformat()[:19] + "Z",
+    line = {"ts": now.isoformat()[:19] + "Z", "session": session, "start": start.astimezone(timezone.utc).isoformat(),  # full precision: two prompts in one second stay two
             "requests": n, "context": ctx, "output": out, "by_model": fams,
             "rtk_saved": rtk_saved(start, now, cmds, rtk) if cmds else (0 if rtk or rtk_db() else None),
             "ctx_saved_bytes": ctx_saved(session, start, now, home), "pilot_saved_usd": pilot_saved(session, start, now, pilot)}

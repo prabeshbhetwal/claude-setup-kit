@@ -70,6 +70,13 @@ test('rules: short lookups are haiku', async () => {
   }
 })
 
+test('a positive model choice beside a negated alternative still counts', async () => {
+  expect(explicitChoice('Analyse this with Opus, not Fable.').tier).toBe('opus')
+  expect(explicitChoice('Summarise the file with Haiku rather than Opus.').tier).toBe('haiku')
+  expect(explicitChoice('compare haiku with sonnet').tier).toBeUndefined()
+  expect(explicitChoice('Do not use fable; use sonnet instead.').tier).toBe('sonnet')
+})
+
 test('rules: an action asked as a question is work; ordinary words are not hard reasoning', async () => {
   for (const p of ['can you delete the old branches?', 'could you update the readme?', 'please fix the login bug']) expect(rulesVerdict(input(p)).tier).toBe('sonnet')
   for (const p of ['update my profile page', 'scale the image to 50%', 'design a logo']) expect(rulesVerdict(input(p)).tier).not.toBe('opus')

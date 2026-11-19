@@ -161,7 +161,7 @@ const TIER_WORD = '(haiku|sonnet|opus|fable)'
 // "use opus", "switch to haiku for this", "answer with sonnet", "opus: ..." at the start. The
 // lookahead keeps "use haiku structure" and "the opus codec" from counting as a choice.
 const NAMED_TIER = new RegExp(
-  `(?:^|[\\s(])(use|using|switch to|run (?:this |it )?on|answer (?:this )?(?:with|on)|with|via|on)\\s+(?:the\\s+)?(?:claude[- ])?${TIER_WORD}(?:[- ]?\\d[\\d.]*)?(?:\\s+model)?(?=\\s*(?:$|[.,;:!?)]|for\\b|to\\b|at\\b|with\\b|and\\b|please\\b|here\\b|effort\\b|on\\b))`,
+  `(?:^|[\\s(])(use|using|switch to|run (?:this |it )?on|answer (?:this )?(?:with|on)|with|via|on)\\s+(?:the\\s+)?(?:claude[- ])?${TIER_WORD}(?:[- ]?\\d[\\d.]*)?(?:\\s+model)?(?=\\s*(?:$|[.,;:!?)]|for\\b|to\\b|at\\b|with\\b|and\\b|please\\b|here\\b|effort\\b|on\\b|rather than\\b|instead of\\b|instead\\b|not\\b))`,
   'gi',
 )
 const LEADING_TIER = new RegExp(`^\\s*@?${TIER_WORD}\\s*[:,]\\s`, 'i')
@@ -176,7 +176,8 @@ const NEGATED = /\b(?:don['’]?t|do not|never|not|no|avoid|stop|instead of|rath
 function namedTier(part: string, negated: Set<string>): string | undefined {
   const lead = LEADING_TIER.exec(part)?.[1]
   if (lead) return lead.toLowerCase()
-  const tiers = new Set([...part.matchAll(ANY_TIER)].map(m => (m[1] ?? '').toLowerCase()))
+  // Tiers named positively: a negated alternative ("with Opus, not Fable") is not a comparison.
+  const tiers = new Set([...part.matchAll(ANY_TIER)].filter(m => !NEGATED.test(part.slice(0, m.index))).map(m => (m[1] ?? '').toLowerCase()))
   let pick: string | undefined
   for (const m of part.matchAll(NAMED_TIER)) {
     const tier = (m[2] ?? '').toLowerCase()

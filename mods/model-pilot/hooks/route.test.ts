@@ -101,6 +101,8 @@ test('private folders compare real paths on both sides, so a symlink cannot rout
   expect(await isPrivateHere(elsewhere.$, { privacy: false, privateFolders: '~/client' })).toBe(false)
   const broken = fake(() => { throw new Error('no shell') }, '/home/u/client/x')
   expect(await isPrivateHere(broken.$, { privacy: false, privateFolders: '~/client' })).toBe(true) // as written still counts
+  const alias = fake(() => { throw new Error('no shell') }, '/var/x')
+  expect(await isPrivateHere(alias.$, { privacy: false, privateFolders: '/private/var' })).toBe(true) // cannot resolve: fail closed, rules only
 })
 
 test('the sub-agent effort map keeps only the newest entries', async () => {

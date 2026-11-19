@@ -206,7 +206,7 @@ export const register: Register = (on, options) => {
       await update($, flags, f => ({ ...f, isModelPinned: false, isEffortPinned: false }))
       return { text: 'Model and effort are the pilot\'s to pick again.' }
     }
-    if (word === 'eval') return { text: await runEval($, rest.join(' '), o.judgeModel) }
+    if (word === 'eval') return { text: await runEval($, rest.join(' '), o.judgeModel, o) }
     const f = await read($, flags)
     if (word === 'cost') {
       const usage = await $.session.usage()
