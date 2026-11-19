@@ -213,6 +213,9 @@ if __name__ == "__main__":
         selftest()
         sys.exit(0)
     os.makedirs(OUT, exist_ok=True)
+    old = os.path.join(OUT, "before-week.json")  # kept by older installs: it belongs to the change day on record
+    if os.path.exists(old) and not os.path.exists(SNAP) and not os.environ.get("TOKEN_COMPARE_CHANGE") and os.path.exists(_CD):
+        os.replace(old, SNAP)
     if not os.environ.get("TOKEN_COMPARE_CHANGE") and not os.path.exists(_CD):
         # No change day on record (install.sh writes one): fix today as the change day so later runs compare the same weeks.
         open(_CD, "w").write(f"{CHANGE:%Y-%m-%d}\n")
