@@ -10,17 +10,20 @@ PNG/JPG files also go to Jev; both answers are printed and a disagreement is fla
 so Claude looks at that file itself. --only gemini|jev runs one model.
 Every run is logged (file hash, not content) to ~/.claude/jev/media-decisions.jsonl.
 Exit 0 ok; 2 every model failed or input refused. Output is triage, never approval.
+Honours ~/.claude/jev/policy.json for BOTH models: a skipped folder sends nothing anywhere. Offline check: mjudge --test
 Free-tier Gemini may use inputs for training: never send client-confidential media without consent.
 """
 import argparse
 import base64
 import concurrent.futures
 import hashlib
+import http.client
 import importlib.machinery
 import importlib.util
 import json
 import mimetypes
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -55,10 +58,10 @@ def fit_for_jev(path: Path, data: bytes) -> bytes:
         out = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)], capture_output=True, text=True)
     except OSError:  # sips is macOS-only: no Jev second opinion on other systems, Gemini still answers
         raise Unavailable("jev: image sizing needs macOS sips; Jev skipped on this system")
-    dims = [int(l.split(":")[1]) for l in out.stdout.splitlines() if "pixel" in l]
+    dims = dict(re.findall(r"^\s+pixel(Width|Height):\s*(\d+)", out.stdout, re.M))  # sips prints the path first: it may say "pixel"
     if len(dims) != 2:
         raise Unavailable(f"jev: cannot read size of {path.name}")
-    w, h = dims
+    w, h = int(dims["Width"]), int(dims["Height"])
     if JEV_MIN <= w <= JEV_MAX and JEV_MIN <= h <= JEV_MAX:
         return data
     scale = JEV_MAX / max(w, h) if max(w, h) > JEV_MAX else JEV_MIN / min(w, h)
@@ -141,7 +144,7 @@ def ask_gemini(kind, text, path, data, block, mime, context, opts, levels):
                 time.sleep(2 ** attempt)
                 continue
             raise Unavailable(f"gemini HTTP {e.code}: {e.read().decode(errors='replace')[:200]}")
-        except (urllib.error.URLError, TimeoutError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:  # 3.9: socket.timeout, RemoteDisconnected
             if attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
@@ -150,9 +153,6 @@ def ask_gemini(kind, text, path, data, block, mime, context, opts, levels):
 
 
 def ask_jev(kind, text, path, data, mime, context, opts, levels):
-    here, real = os.path.dirname(os.path.abspath(path)), os.path.dirname(os.path.realpath(path))
-    if not (JEV.policy_allows("mjudge", here) and JEV.policy_allows("mjudge", real)):  # as written and as resolved: a link into a skipped folder counts
-        raise Unavailable("Jev is off for this folder or for mjudge in ~/.claude/jev/policy.json")
     data = fit_for_jev(path, data)
     ref = f"img-{uuid.uuid4().hex[:12]}"
     state = {"item": ref}
@@ -192,6 +192,10 @@ def fmt(kind, a) -> str:
 
 def judge_file(args, path: Path) -> dict:
     rec = {"file": path.name, "results": {}, "errors": {}}
+    # policy.json binds both models, before anything is read or uploaded; checked as written and as resolved (a link into a skipped folder counts)
+    if not all(JEV.policy_allows("mjudge", os.path.dirname(f(path))) for f in (os.path.abspath, os.path.realpath)):
+        rec["errors"]["policy"] = "off for this folder or for mjudge in ~/.claude/jev/policy.json (or the file is missing); nothing sent"
+        return rec
     try:
         data = path.read_bytes()
         block, mime = media_type(path)
@@ -216,8 +220,8 @@ def judge_file(args, path: Path) -> dict:
             try:
                 ans, tokens, secs = fut.result()
                 rec["results"][name] = {"answer": ans, "tokens": tokens, "secs": secs}
-            except Unavailable as e:
-                rec["errors"][name] = str(e)
+            except Exception as e:  # one model's failure (Unavailable or not) must not end the run
+                rec["errors"][name] = str(e) if isinstance(e, Unavailable) else f"{type(e).__name__}: {str(e)[:200]}"
     g, j = rec["results"].get("gemini"), rec["results"].get("jev")
     if g and j:
         rec["disagree"] = disagree(args.kind, g["answer"], j["answer"])
@@ -244,7 +248,6 @@ def main(argv=None) -> None:
     if JEV.SECRET.search(args.question + " " + args.context + " " + " ".join(args.opt + args.level)):
         print("mjudge refused: question or context looks like it holds a credential", file=sys.stderr)
         sys.exit(2)
-
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         recs = list(pool.map(lambda f: judge_file(args, Path(f).expanduser()), args.files))
 
@@ -265,5 +268,36 @@ def main(argv=None) -> None:
         sys.exit(2)
 
 
+def offline_test() -> None:
+    """No network: sips parsing, the policy gate over both models, per-model errors, 3.9 network errors. Run with a throwaway HOME."""
+    import contextlib, socket, subprocess, tempfile, types  # noqa: E401
+    global ask_gemini, ask_jev
+    import jev_lib
+    (f := Path(tempfile.mkdtemp()) / "pixel.png").write_bytes(b"x")
+    real = subprocess.run
+    subprocess.run = lambda *a, **k: types.SimpleNamespace(returncode=0, stdout=f"{f}\n  pixelWidth: 300\n  pixelHeight: 400\n")
+    assert fit_for_jev(f, b"d") == b"d", "a path containing 'pixel' must not break sips parsing"
+    subprocess.run, calls = real, []
+    ok = lambda name: lambda *a: calls.append(name) or ({"noul": 0.9}, 0)  # noqa: E731
+    ask_gemini, real_gemini, ask_jev = ok("gemini"), ask_gemini, ok("jev")
+    jev_lib.POLICY = f.parent.parent / "policy.json"
+    args = types.SimpleNamespace(kind="noul", question="q", context="", opts={}, levels=[], only=None)
+    for pol, want in (({"skip_paths": [str(f.parent)]}, []), ({"enabled": False}, []), ({"sites_off": ["mjudge"]}, []), ({}, ["gemini", "jev"])):
+        calls.clear()
+        jev_lib.POLICY.write_text(json.dumps(pol))
+        rec = judge_file(args, f)
+        assert sorted(calls) == want and bool(rec["results"]) == bool(want), f"{pol}: sent to {calls}: {rec}"  # a skipped folder reaches neither model
+    ask_gemini = lambda *a: (_ for _ in ()).throw(KeyError("answers"))  # noqa: E731
+    rec = judge_file(args, f)
+    assert "KeyError" in rec["errors"]["gemini"] and "jev" in rec["results"], f"one model's error must land in errors: {rec}"
+    ask_gemini, os.environ["GEMINI_API_KEY"], time.sleep = real_gemini, "test-key", lambda s: None
+    for exc in (socket.timeout("t"), http.client.RemoteDisconnected("r")):
+        urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(exc)  # noqa: B023
+        with contextlib.suppress(Unavailable):  # 3.9: not URLError, so it used to escape as a raw traceback
+            ask_gemini("noul", "q", f, b"x", "image", "image/png", "", {}, [])
+            raise AssertionError("must not succeed")
+    print("mjudge offline test ok")
+
+
 if __name__ == "__main__":
-    main()
+    offline_test() if sys.argv[1:] == ["--test"] else main()

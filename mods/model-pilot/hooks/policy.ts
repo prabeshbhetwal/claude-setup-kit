@@ -239,7 +239,7 @@ export function spawnNote(agent: string, required: Tier, runTier: Tier, i: Cache
 
 /** Whether an agent definition's frontmatter names a model of its own. */
 export function agentFileNamesModel(markdown: string): boolean {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown)
+  const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/.exec(markdown)
   if (!m?.[1]) return false
   const line = /^model:\s*(.+)$/m.exec(m[1])
   const value = line?.[1]?.trim().replace(/^["']|["']$/g, '').toLowerCase()

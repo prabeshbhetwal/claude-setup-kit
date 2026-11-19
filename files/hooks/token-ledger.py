@@ -18,6 +18,7 @@ The backward read stops at MAX_WINDOW bytes: no typed prompt within it -> no lin
 import glob
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -29,7 +30,9 @@ SUMS = ("requests", "context", "output", "rtk_saved", "ctx_saved_bytes", "pilot_
 
 
 def when(s):
-    return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    # Python 3.9 fromisoformat takes only 3 or 6 fraction digits: pad or cut to 6
+    s = re.sub(r"\.(\d+)", lambda m: "." + m.group(1)[:6].ljust(6, "0"), str(s)).replace("Z", "+00:00")
+    return datetime.fromisoformat(s)
 
 
 def rtk_db():

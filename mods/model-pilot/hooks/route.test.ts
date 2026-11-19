@@ -8,7 +8,7 @@ import { noCosts } from './prices'
 import { isPrivateHere } from './privacy'
 import { chainOf, optionsOf } from './options'
 import type { Options } from './options'
-import { finish, verdictFor } from './route'
+import { begin, finish, turnOf, verdictFor } from './route'
 import type { Rec } from './route'
 
 type Run = { stdout?: string; stderr?: string; exitCode?: number }
@@ -115,4 +115,15 @@ test('the sub-agent effort map keeps only the newest entries', async () => {
   expect(m.size).toBe(64)
   expect(m.has('a99')).toBe(true)
   expect(m.has('a0')).toBe(false)
+})
+
+test('a follow-up after a Haiku turn is judged again, not kept on Haiku', async () => {
+  const { $ } = fake()
+  const flags = { isModelPinned: false, isEffortPinned: false } as Parameters<typeof begin>[2]
+  await finish($, opts, 's1', recOf({ decision: { ...decision, tier: 'haiku', required: 'haiku' }, verdictEffort: 'low' }))
+  await begin($, opts, flags, 's2', 'yes')
+  expect(turnOf('s2')?.isSticky).toBe(false)
+  await finish($, opts, 's3', recOf({ decision, verdictEffort: 'medium' }))
+  await begin($, opts, flags, 's4', 'yes')
+  expect(turnOf('s4')?.isSticky).toBe(true)
 })

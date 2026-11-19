@@ -73,9 +73,12 @@ export const noteSwitch = (): void => {
   isSwitchNoted = true
 }
 
+/** A follow-up keeps the last tier, except after Haiku: a "yes" to "shall I fix it?" may be real coding. */
+const isStickyFollowUp = (text: string): boolean => isFollowUp(text) && last !== undefined && last.required !== 'haiku'
+
 /** Whether this prompt needs a verdict at all: not a follow-up, not fully chosen by the person. */
 function needsJudge(f: PilotFlags, text: string): boolean {
-  if (isFollowUp(text) && last !== undefined) return false
+  if (isStickyFollowUp(text)) return false
   const x = explicitChoice(text)
   return !((f.isModelPinned || x.tier !== undefined) && (f.isEffortPinned || x.effort !== undefined))
 }
@@ -112,7 +115,7 @@ export async function begin($: EngineInterface, o: Options, f: PilotFlags, turnI
     text,
     t0,
     explicit: explicitChoice(text),
-    isSticky: isFollowUp(text) && last !== undefined,
+    isSticky: isStickyFollowUp(text),
     isFirst: turnCount === 0,
     pending: early ?? (needsJudge(f, text) ? startJudge($, o, text, t0) : undefined),
     waitedMs: 0,

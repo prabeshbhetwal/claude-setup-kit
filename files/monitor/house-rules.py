@@ -115,9 +115,11 @@ def decide(cid, status, text=None, tags=None):
     c = next((x for x in cands if x["id"] == cid), None)
     if not c:
         sys.exit(f"no candidate {cid}")
+    if c["status"] != "pending":
+        sys.exit(f"{cid} is already {c['status']}; nothing changed")
     c["status"], c["decided"] = status, int(time.time())
     if status == "approved":
-        rid = f"r{len(rules) + 1}"
+        rid = "r%d" % (max([int(m.group(1)) for r in rules if (m := re.fullmatch(r"r(\d+)", str(r.get("id"))))], default=0) + 1)  # not len+1: a hand-trimmed list would reuse an id
         rule = (text or c["rule"]).strip()
         rules.append({"id": rid, "rule": rule, "tags": tags or T.tags_of(rule), "keywords": sorted(set(T.words(rule) + c["keywords"]))[:10],
                       "evidence": c["evidence"][:5], "added": int(time.time()), "status": "active", "from": cid})
@@ -188,4 +190,7 @@ def main(a):
 
 
 if __name__ == "__main__":
-    main(sys.argv)
+    try:
+        main(sys.argv)
+    except ValueError as e:  # an unreadable store file: stop, never write over it
+        sys.exit(f"house-rules: {e}")

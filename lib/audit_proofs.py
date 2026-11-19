@@ -5,7 +5,9 @@
 
 1. Another model selector is switched off only AFTER Model pilot installed; a failed install leaves it on.
 2. Re-running the installer refreshes the kit's own plugins (marketplace update, then plugin update).
-3. Each per-prompt and per-command hook finishes quickly (timed; slow ones fail).
+3. Each per-prompt and per-command hook finishes quickly and cleanly (timed; slow or crashing ones fail).
+4. Every script's own self-check passes under Apple's python3 3.9.
+5. An upgrade without the Jev part turns off Jev sites the user was never asked about.
 Everything runs in a throwaway HOME under $TMPDIR; the real `claude`, settings and launchd are never touched.
 """
 import json, os, shutil, subprocess, sys, tempfile, time
@@ -81,7 +83,10 @@ if mu is None or pu is None or pu < mu:
 # 2b. Model pilot installed but switched off: the other selector must stay on
 home, log = fresh("sel-disabled", True)
 run(home, ["--only", "model-pilot"], {"FAKE_LOG": log, "FAKE_INSTALL": "ok", "FAKE_PILOT": "disabled"}, "y\n" * 40)
-if any(c.startswith("plugin disable other@claude-model-selector") for c in open(log).read().splitlines()):
+calls = open(log).read().splitlines()
+if not any(c.startswith("plugin list") for c in calls):
+    bad.append(f"selector: the disabled-pilot case never reached the plugin check, so it proves nothing: {calls}")
+elif any(c.startswith("plugin disable other@claude-model-selector") for c in calls):
     bad.append("selector: Model pilot is switched off, yet the other selector was switched off too (none left on)")
 
 # 2c. the Model pilot settings writer keeps a symlinked settings.json and its 0600 mode
@@ -113,12 +118,39 @@ for script, args, event in cases:
     best = 9e9
     for _ in range(3):
         t0 = time.perf_counter()
-        subprocess.run([sys.executable, path, *args], input=json.dumps(event), capture_output=True, text=True,
-                       env={"HOME": home, "PATH": "/usr/bin:/bin", "CLAUDE_CODE_ENTRYPOINT": "claude-desktop"}, timeout=30)
+        r = subprocess.run([sys.executable, path, *args], input=json.dumps(event), capture_output=True, text=True,
+                           env={"HOME": home, "PATH": "/usr/bin:/bin", "CLAUDE_CODE_ENTRYPOINT": "claude-desktop"}, timeout=30)
         best = min(best, time.perf_counter() - t0)
+    if r.returncode:  # a hook that crashes is not fast, it is broken
+        bad.append(f"timing: {script} exited {r.returncode}: {(r.stdout + r.stderr)[-200:]}")
     print(f"timing {script:24} {best * 1000:6.0f} ms")
     if best > 1.0:
         bad.append(f"timing: {script} took {best:.2f} s (limit 1 s)")
+
+# 4. every script's own self-check, under Apple's python3 3.9 (what users run), not whatever python3 is first on PATH
+PY39 = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
+shutil.copytree(os.path.join(KIT, "files/hooks"), os.path.join(T, "selftest-home/.claude/hooks"))
+shutil.copytree(os.path.join(KIT, "files/bin"), os.path.join(T, "selftest-home/.local/bin"))  # installed layout: scripts load their siblings
+for rel, arg in (("files/hooks/block-rm.py", "--test"), ("files/bin/trashmv", "--test"), ("files/bin/jev-gate", "--test"),
+                 ("files/hooks/codegraph-gate.py", "--test"), ("files/monitor/setup-monitor.py", "selftest"),
+                 ("lib/merge_settings.py", "selftest"), ("files/bin/jev", "test"), ("files/bin/mjudge", "--test"),
+                 ("files/hooks/jev_lib.py", "test")) + tuple(
+        (f"files/hooks/{f}", "selftest") for f in ("jev-hooks.py", "token-daily.py", "token-compare.py", "token-ledger.py",
+                                                   "verify-done.py", "token-tools.py", "apply-hook-timeouts.py", "token-report.py",
+                                                   "session-title.py", "index-first.py")):
+    r = subprocess.run([PY39, os.path.join(KIT, rel), arg], capture_output=True, text=True, timeout=120,
+                       env={"HOME": os.path.join(T, "selftest-home"), "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp")})
+    if r.returncode:
+        bad.append(f"selftest {rel} on {PY39}: exit {r.returncode}: {(r.stdout + r.stderr)[-200:]}")
+
+# 5. an upgrade that leaves Jev out still turns off every Jev site the user was never asked about (a policy from an older kit)
+home, log = fresh("jev-upgrade", False)
+os.makedirs(os.path.join(home, ".claude/jev"))
+json.dump({"sites_off": ["house-rules-recall", "house-rules-mine"]}, open(os.path.join(home, ".claude/jev/policy.json"), "w"))
+run(home, ["--only", "safety", "--yes"], {"FAKE_LOG": log})
+off = set(json.load(open(os.path.join(home, ".claude/jev/policy.json"))).get("sites_off", []))
+if not {"codegraph-gate", "model-pilot", "jev-gate"} <= off:
+    bad.append(f"consent: an upgrade without the Jev part left never-asked sites on: sites_off={sorted(off)}")
 
 shutil.rmtree(T, ignore_errors=True)  # only the throwaway folder this run made
 for b in bad:

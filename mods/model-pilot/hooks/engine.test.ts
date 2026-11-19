@@ -35,6 +35,39 @@ test('a refusal by the policy, or a jev too old for the flags, is no answer and 
   }
 })
 
+test('a private session is judged by the rules alone: no Jev process, no model call', async () => {
+  const e = jevEngine({})
+  let modelCalls = 0
+  Object.assign(e.$, { model: { complete: async () => (modelCalls++, { isAnswered: false, reason: 'x' }) } })
+  const input = { prompt: 'explain this', recent: '', contextTokens: 0, currentTier: 'sonnet', kind: 'prompt' } as const
+  const j = await judge(e.$, input, { isPrivate: true, budgetMs: 100, model: 'haiku', chain: ['jev', 'haiku'], jev: { isOff: false, failures: 0 } })
+  expect(j.source).toBe('rules')
+  expect(j.fail).toBe('privacy')
+  expect(e.argvs.length).toBe(0)
+  expect(modelCalls).toBe(0)
+})
+
+test('Jev is switched off for the session on the third failure in a row, not before', async () => {
+  const st = { isOff: false, failures: 0 }
+  const e = jevEngine({ exitCode: 1, stderr: 'boom' })
+  await ask(e, st)
+  await ask(e, st)
+  expect(st).toEqual({ isOff: false, failures: 2 })
+  await ask(e, st)
+  expect(st.isOff).toBe(true)
+  const asked = e.argvs.length
+  await ask(e, st)
+  expect(e.argvs.length).toBe(asked) // not asked again
+})
+
+test('the credential guard refusing the text is not a failure of Jev', async () => {
+  const st = { isOff: false, failures: 0 }
+  const e = jevEngine({ exitCode: 2, stderr: 'jev: input looks like a credential, not sent' })
+  for (let i = 0; i < 3; i++) expect((await ask(e, st)).source).toBe('rules')
+  expect(st).toEqual({ isOff: false, failures: 0 })
+  expect(e.argvs.length).toBe(3) // still asked each time
+})
+
 // Settles after `ticks` turns of the microtask queue: an order without timers.
 const after = async <T>(ticks: number, v: T): Promise<T> => {
   for (let i = 0; i < ticks; i++) await Promise.resolve()

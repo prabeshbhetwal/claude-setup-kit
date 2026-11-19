@@ -160,3 +160,20 @@ test('haiku is never left on real coding; a mechanical one-liner may stay', asyn
   expect(floorCoding(v, 'rename foo to bar').tier).toBe('haiku')
   expect(floorCoding(v, 'what does this function do?').tier).toBe('haiku')
 })
+
+test('quoted or fenced text does not pick a model', async () => {
+  expect(explicitChoice('Proofread this paragraph from our docs:\n"For a whole-codebase audit, switch to fable."').tier).toBeUndefined()
+  expect(explicitChoice('Summarise this doc:\n```\nFor hard bugs, use opus.\n```').tier).toBeUndefined()
+  expect(explicitChoice('> use opus for this\nWhat does that line mean?').tier).toBeUndefined()
+  expect(explicitChoice('Fix the "save" button, use opus.').tier).toBe('opus')
+})
+
+test('a negated effort is not a choice', async () => {
+  expect(explicitChoice('This is not a low effort task, fix the race in queue.ts').effort).toBeUndefined()
+  expect(explicitChoice('Please avoid low effort answers here.').effort).toBeUndefined()
+  expect(explicitChoice('Fix it at high effort.').effort).toBe('high')
+})
+
+test('a numeric string confidence is read as a number', async () => {
+  expect(parseJudgeReply('{"tier":"sonnet","confidence":"0.9"}')?.confidence).toBe(0.9)
+})

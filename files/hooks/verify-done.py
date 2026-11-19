@@ -13,6 +13,8 @@ Example .claude/verify:  #!/bin/sh
                          npm test --silent
 A failing check exits 2: its last lines go back to Claude, which fixes the failure before finishing.
 Stop retries are capped at 3 per session so a check Claude cannot fix never loops forever.
+When a check cannot run (not executable, missing interpreter) or is still failing at the cap, the hook lets the turn
+end but tells you so with a {"systemMessage": ...} line on stdout: that work is not verified.
 An edit marker older than the turn's prompt (left by an interrupted turn) is dropped, not verified.
 """
 import json
@@ -57,6 +59,10 @@ def find(project, name):
     return None
 
 
+def note(msg):
+    print(json.dumps({"systemMessage": "verify-done: " + msg}))
+
+
 def run(cmd, project, timeout):
     try:
         p = subprocess.run(cmd, cwd=project, capture_output=True, text=True, timeout=timeout)
@@ -64,7 +70,7 @@ def run(cmd, project, timeout):
     except subprocess.TimeoutExpired:
         return 124, f"timed out after {timeout}s"
     except OSError as e:
-        return 0, f"could not run ({e}); skipped"  # a broken check must not trap Claude
+        return None, f"could not run ({e})"  # a broken check must not trap Claude; the caller says so
 
 
 def fail(label, code, out):
@@ -109,6 +115,9 @@ def main(mode, data, state=STATE):
         if not cmd or not path:
             return 0
         code, out = run(cmd + [path], project, 60)
+        if code is None:
+            note(f".claude/lint {out}; {os.path.basename(path)} not linted")
+            return 0
         return fail(".claude/lint " + os.path.basename(path), code, out) if code else 0
     if mode == "stop":
         if not os.path.exists(edited):
@@ -122,12 +131,19 @@ def main(mode, data, state=STATE):
         if data.get("stop_hook_active") and n >= MAX_RETRIES:
             for f in (edited, tries):
                 os.remove(f)
+            note(f".claude/verify still failing after {MAX_RETRIES} tries; this work is NOT verified")
             return 0
         cmd = find(project, "verify")
         if not cmd:
             os.remove(edited)
+            if os.path.isfile(os.path.join(project, ".claude", "verify")):
+                note(".claude/verify is not executable (chmod +x it, or name it verify.sh); this work is NOT verified")
             return 0
         code, out = run(cmd, project, 600)
+        if code is None:
+            os.remove(edited)
+            note(f".claude/verify {out}; this work is NOT verified")
+            return 0
         if code:
             open(tries, "w").write(str(n + 1))
             return fail(".claude/verify", code, out)
@@ -176,6 +192,34 @@ def selftest():
     main("edit", ev, st)
     open(tr, "w").write(line("2000-01-01T00:00:00Z") + "\n")
     assert main("stop", {**ev, "transcript_path": tr}, st) == 2, "this turn's edit must still verify"
+    # a check that cannot run, or still fails at the cap, must tell the user (JSON on stdout), never pass silently
+    import contextlib
+    import io
+
+    def said(ev2):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main("stop", {**ev, **ev2}, st)
+        return rc, buf.getvalue()
+    vp = os.path.join(d, ".claude", "verify")
+    os.remove(v)
+    open(vp, "w").write("exit 0\n")  # exists, not executable, no .sh name
+    main("edit", ev, st)
+    rc, out = said({})
+    assert rc == 0 and "not executable" in json.loads(out)["systemMessage"], out
+    os.chmod(vp, 0o755)
+    open(vp, "w").write("#!/no/such/interpreter\nexit 0\n")
+    main("edit", ev, st)
+    rc, out = said({})
+    assert rc == 0 and "could not run" in json.loads(out)["systemMessage"], out
+    open(vp, "w").write("#!/bin/sh\nexit 1\n")
+    for f in os.listdir(st):  # fresh retry count
+        os.remove(os.path.join(st, f))
+    main("edit", ev, st)
+    for _ in range(MAX_RETRIES):
+        assert said({"stop_hook_active": True})[0] == 2
+    rc, out = said({"stop_hook_active": True})
+    assert rc == 0 and "NOT verified" in json.loads(out)["systemMessage"], out
     print("selftest ok")
 
 

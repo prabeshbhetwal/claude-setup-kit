@@ -45,12 +45,20 @@ def git(*args, cwd=None):
     return r.stdout if r.returncode == 0 else ""
 
 
-def auto_diff(cwd=None):
+def untracked(cwd=None):
+    """New files as diffs: `git diff` skips them, so a change that is only a new file would read as no change at all."""
+    files = git("ls-files", "--others", "--exclude-standard", "-z", cwd=cwd).split("\0")
+    return "".join(subprocess.run(["git", "diff", "--no-index", "--", "/dev/null", f], capture_output=True, text=True,
+                                  errors="replace", cwd=cwd).stdout for f in files if f)  # exits 1 when files differ
+
+
+def auto_diff(cwd=None, last_commit=True):
     for base in ("origin/main", "origin/master", "main", "master"):
         mb = git("merge-base", "HEAD", base, cwd=cwd).strip()
         if mb and mb != git("rev-parse", "HEAD", cwd=cwd).strip():
-            return git("diff", mb, cwd=cwd)
-    return git("diff", "HEAD", cwd=cwd) or git("diff", "HEAD~1", "HEAD", cwd=cwd)  # clean tree: last commit
+            return git("diff", mb, cwd=cwd) + untracked(cwd)
+    # clean tree: the last commit, but only when asked (the hook must never review a commit nobody touched)
+    return git("diff", "HEAD", cwd=cwd) + untracked(cwd) or (git("diff", "HEAD~1", "HEAD", cwd=cwd) if last_commit else "")
 
 
 def gate(diff, desc="", cwd=""):
@@ -69,9 +77,10 @@ def gate(diff, desc="", cwd=""):
     try:
         a = jev_lib._post({"model": jev_lib._jev.MODEL, "state": {"pr_description": desc, "diff": diff[:LIMIT]},
                            "questions": qs}, 15)["answers"]
-    except Exception:
-        return None
-    p = {k: float(a[k]["noul"]) for k in N}
+        p = {k: float(a[k]["noul"]) for k in N}
+        concern, blast = a["primary_concern"]["choice"], float(a["blast_radius"]["score"])  # a partial answer is no answer
+    except Exception as e:
+        return jev_lib._failopen("jev-gate", repr(e)[:160], cwd)
     crit = ["hardcoded_secret", "injection_risk"]
     if any(p[k] >= 0.65 for k in crit):
         v = "BLOCK"
@@ -86,7 +95,7 @@ def gate(diff, desc="", cwd=""):
     if len(diff) > LIMIT and v == "MERGE":  # the unseen tail could hold anything
         v = "NITS"
     flags = [f"{k} {p[k]:.2f}" for k in N if (p[k] >= 0.5) != (k in ("description_matches", "adds_tests", "merge_ready"))]
-    summary = (f"concern {a['primary_concern']['choice']}; blast {a['blast_radius']['score']:.1f}/3; "
+    summary = (f"concern {concern}; blast {blast:.1f}/3; "
                f"flags: {', '.join(flags) or 'none'}"
                + (f"; diff truncated to {LIMIT} chars, full review required" if len(diff) > LIMIT else ""))
     jev_lib.log("jev-gate", "PR verdict", summary, p["merge_ready"], v == "MERGE")
@@ -99,7 +108,7 @@ def hook():
     if "review" not in skill.lower():
         return
     cwd = payload.get("cwd") or os.getcwd()
-    res = gate(auto_diff(cwd), git("log", "-1", "--format=%B", cwd=cwd).strip(), cwd=cwd)
+    res = gate(auto_diff(cwd, last_commit=False), git("log", "-1", "--format=%B", cwd=cwd).strip(), cwd=cwd)
     if not res:
         return
     v, summary = res
@@ -128,6 +137,31 @@ def test():
     assert gate(diff, "rotate creds, " + secret, "/")[0] == "BLOCK" and len(sent) == 1, "secret in description sent"
     v, summary = gate(diff * (LIMIT // len(diff) + 10), "", "/")
     assert v != "MERGE" and "truncated" in summary and len(sent[-1]["state"]["diff"]) == LIMIT
+    import contextlib, io, tempfile  # noqa: E401
+    reasons = []
+    jev_lib._failopen = lambda site, reason, cwd="": reasons.append((site, reason))
+    jev_lib._post = lambda body, timeout: {"answers": {k: v for k, v in clean.items() if k != "merge_ready"}}
+    assert gate(diff, "", "/") is None and reasons and reasons[-1][0] == "jev-gate", "a partial answer must be no verdict, not a KeyError"
+    jev_lib._post = lambda body, timeout: (_ for _ in ()).throw(OSError("down"))
+    assert gate(diff, "", "/") is None and reasons and "down" in reasons[-1][1], "a failed call must be recorded via _failopen"
+    repo = tempfile.mkdtemp()  # the only change is a new file: review that, never the last (unrelated) commit
+    g = lambda *c: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *c], cwd=repo, capture_output=True, check=True)  # noqa: E731
+    g("init", "-q")
+    for n in ("a", "b"):
+        open(f"{repo}/{n}.txt", "w").write(n)
+        g("add", ".")
+        g("commit", "-qm", n)
+    assert "b.txt" in auto_diff(repo) and auto_diff(repo, last_commit=False) == "", "clean tree: last commit for the CLI only, never for the hook"
+    open(f"{repo}/new.txt", "w").write("fresh\n")
+    d = auto_diff(repo)
+    assert "new.txt" in d and "b.txt" not in d, "an untracked file must be in the diff, not hidden behind the last commit"
+    sys.stdin, sys.argv, err = io.StringIO(""), ["jev-gate"], io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err):
+            main()
+        raise AssertionError("an empty diff must exit")
+    except SystemExit as e:
+        assert e.code == 2 and "empty diff" in err.getvalue(), f"documented exit 2, got {e.code!r}"
     print("jev-gate test ok")
 
 
@@ -144,8 +178,9 @@ def main():
     desc = next((a for a in sys.argv[1:] if not a.startswith("-")), "")
     res = gate(diff, desc, os.getcwd())
     if not res:
-        sys.exit("jev-gate: no diff, path skipped or Jev unavailable -> review normally" if diff.strip() else
-                 "jev-gate: empty diff")
+        print("jev-gate: no diff, path skipped or Jev unavailable -> review normally" if diff.strip() else
+              "jev-gate: empty diff", file=sys.stderr)
+        sys.exit(2)  # documented: 2 = no verdict, review normally
     print(f"VERDICT: {res[0]} | {res[1]}")
 
 

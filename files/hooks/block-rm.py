@@ -3,7 +3,8 @@
 
 Enforces the CLAUDE.md rule "never permanently delete: move to _trash/".
 Run `python3 block-rm.py --test` for the self-check.
-Also caught: rm behind sudo, command, env, nohup, exec, time, nice, xargs (with their options and VAR=x
+Also caught: rm in any letter case or path (RM, /bin//rm, grm), after find -exec, a redirection or `case x)`, and behind
+sudo, command, builtin, env, nohup, exec, eval, time, nice, timeout, caffeinate, stdbuf, parallel, rtk proxy, xargs (with their options and VAR=x
 assignments), `bash -c "..."`, inside loops, conditionals, braces, backticks, $( ) and after `!`; paths
 that only look temporary (/tmp/../etc/x is checked as /etc/x, a symlinked parent is resolved first) and
 targets the hook cannot resolve ($VAR, globs, braces, backticks) count as non-temp.
@@ -17,12 +18,14 @@ import shlex
 import sys
 
 TEMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
-# command start: line start, an operator, a quote/backtick/brace/$(/!, or a shell keyword
-START = r"(?:^|[;&|(\n\"'`{!]|\b(?:then|do|else|elif|if|while|until)\b)"
+# command start: line start, an operator, a quote/backtick/brace/$(/!/case ), a shell keyword, or find -exec
+START = r"(?:^|[;&|()\n\"'`{!]|\b(?:then|do|else|elif|if|while|until)\b|-(?:exec|ok)(?:dir)?\s)"
 # wrappers with their options (a short option may take one argument) and VAR=value assignments
-WRAP = (r"(?:(?:/usr)?(?:/bin/)?(?:sudo|doas|command|env|nohup|exec|time|nice)"
-        r"(?:\s+(?:-[ugCDhprtTUaSPn]\s+[^-\s;&|]\S*|-\S*|\w+=\S*))*\s+|\w+=\S*\s+|xargs\s+(?:-\S+\s+)*)")
-RM = re.compile(START + r"\s*" + WRAP + r"*\\?(?:/usr)?(?:/bin/)?(rm|rmdir)\b")
+WRAP = (r"(?:(?:[\w./-]*/)?(?:sudo|doas|command|builtin|env|nohup|exec|eval|time|nice|caffeinate|stdbuf|parallel|g?timeout|rtk\s+proxy)"
+        r"(?:\s+(?:-[ugCDhprtTUaSPnoeik]\s*[^-\s;&|]\S*|-\S*|\w+=\S*|\d+[smhd]?(?=\s)))*\s+|\w+=\S*\s+|\d*[<>]+&?\S*\s+"
+        r"|xargs\s+(?:-[IJLnPRsSEd]\s*[^-\s]\S*\s+|-\S+\s+)*)")
+# the command word: any path before it, GNU grm, any case (APFS runs RM as rm), never an assignment like RM=1
+RM = re.compile(START + r"\s*" + WRAP + r"*\\?(?:[\w./-]*/)?((?i:g?rm|g?rmdir))\b(?!=)")
 UNRESOLVED = re.compile(r"[$`*?{\[~]")
 REASON = ("Blocked by your rule: never permanently delete. Move it instead: "
           "trashmv <path>... (files into ~/_trash/<project>/<date>/<original sub-folders>, outside iCloud, logged in moves.tsv). "
@@ -36,7 +39,14 @@ def targets(segment):
         return None  # unparseable quoting → treat as unsafe
     if any(w.startswith("-") and UNRESOLVED.search(w) for w in words[1:]):
         return None  # -f`printf ...`: the shell turns an "option" into more targets
-    return [w for w in words[1:] if not w.startswith("-")]
+    out, skip = [], False
+    for w in words[1:]:
+        if skip or re.match(r"\d*[<>]", w):  # 2>/dev/null or > log: a redirection, not a target
+            skip = re.fullmatch(r"\d*[<>]+&?", w) is not None
+            continue
+        if not w.startswith("-"):
+            out.append(w)
+    return out
 
 
 def is_temp(path):
@@ -45,14 +55,15 @@ def is_temp(path):
     p = os.path.normpath(path)  # /tmp/../etc/x is /etc/x, not a temp path
     # Resolve the path as written: a symlink in the middle is followed BEFORE any `..` (/tmp/link/../x leaves /tmp when link does).
     base = os.path.basename(path.rstrip("/"))
-    real = os.path.realpath(path) if base in ("", ".", "..") else os.path.join(os.path.realpath(os.path.dirname(path.rstrip("/")) or "."), base)
+    # A trailing slash makes rm follow a final symlink (BSD rm -rf link/ deletes what it points to).
+    real = os.path.realpath(path) if base in ("", ".", "..") or path.endswith("/") else os.path.join(os.path.realpath(os.path.dirname(path.rstrip("/")) or "."), base)
     return p.startswith(TEMP_PREFIXES) and real.startswith(TEMP_PREFIXES)
 
 
 def blocked(command):
     plain = re.sub(r"[\"'\\]", "", command)  # r''m, "r"m and r\m are rm to the shell
-    if plain != command and RM.search(plain) and not RM.search(command):
-        return True  # an rm that only appears once quotes are removed: written to be missed
+    if len(RM.findall(plain)) > len(RM.findall(command)):
+        return True  # an rm that only appears once quotes are removed: written to be missed, even beside a plain rm
     for m in RM.finditer(command):
         quote = command[m.start(1) - 1] if m.start(1) and command[m.start(1) - 1] in "\"'" else ""
         segment = re.split(r"[;&|)\n" + quote + "]", command[m.start(1):], maxsplit=1)[0]  # not at ` or }: later targets must stay checked  # bash -c "rm x": stop at the quote
@@ -63,8 +74,12 @@ def blocked(command):
 
 
 def main():
-    data = json.load(sys.stdin)
-    if blocked(data.get("tool_input", {}).get("command", "")):
+    try:
+        data = json.load(sys.stdin)
+        deny = blocked(data.get("tool_input", {}).get("command", ""))
+    except Exception:
+        deny = True  # the one guard that fails closed: a crash must not let a delete through
+    if deny:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                  "permissionDecision": "deny",
                                                  "permissionDecisionReason": REASON}}))
@@ -138,6 +153,22 @@ def test():
     assert blocked("rm -f`printf${IFS}'v /etc/project'` /tmp/x"), "an expansion inside an option can add targets"
     assert blocked("r''m important.txt") and blocked('"r"m x') and blocked("r\\m x") and blocked("'rm' x")
     assert not blocked("echo 'it''s fine'") and not blocked('git commit -m "tidy up"')
+    # ECC review 2026-11-20: wrappers, find -exec, case, redirections, odd paths, hidden rm beside a plain one
+    for cmd in ("ls | xargs -n 1 rm", "ls | xargs -I {} rm {}", "xargs -P 4 rm", "find . -exec rm -rf {} \\;",
+                "find . -name x -exec rm -f {} +", "timeout 5 rm -rf src", "caffeinate rm x", "stdbuf -o0 rm x",
+                "eval rm -rf src", "builtin rm x", "rtk proxy rm x", "parallel rm ::: src", "case a in a) rm -rf src;; esac",
+                ">/dev/null rm -rf src", "/bin//rm x", "grm x", "RM -rf src", "/bin/Rm x", "xargs -0 RM",
+                "rm /tmp/x; r''m -rf ~"):
+        assert blocked(cmd), cmd
+    assert not blocked("rm -f /tmp/x 2>/dev/null") and not blocked("rm -f /tmp/x > /dev/null")
+    assert blocked("rm -f x 2>/dev/null")
+    assert not blocked("RM=1 make") and not blocked("timeout 5 ls") and not blocked("echo (x)")
+    d2 = tempfile.mkdtemp(prefix="rm-slash-")
+    os.symlink("/etc", os.path.join(d2, "link"))
+    assert blocked(f"rm -rf {d2}/link/"), "a trailing slash follows the link out of /tmp"
+    assert not blocked(f"rm -rf {d2}/link"), "without the slash only the link goes"
+    os.unlink(os.path.join(d2, "link"))
+    os.rmdir(d2)
     print("block-rm self-check: ok")
 
 

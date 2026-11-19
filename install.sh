@@ -218,7 +218,7 @@ if has caveman && [ -z "$CAVEMODE" ]; then
   fi
 fi
 if has session-title; then
-  case "$TITLE_RECHECK" in ''|*[!0-9]*|0) [ -z "$TITLE_RECHECK" ] || info "Title check '$TITLE_RECHECK' is not a number of prompts: using 5"; TITLE_RECHECK=5 ;; esac
+  case "$TITLE_RECHECK" in ''|*[!0-9]*|0*) [ -z "$TITLE_RECHECK" ] || info "Title check '$TITLE_RECHECK' is not a number of prompts: using 5"; TITLE_RECHECK=5 ;; esac
   if [ -z "$TITLE_SPELLING" ]; then
     TITLE_SPELLING=au
     if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
@@ -246,9 +246,10 @@ for id in rtk safety indexes routing cognee jev measure guard sandbox verify ses
   say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules, done checks and session titles only work through them. They are added to"
   say "~/.claude/settings.json: backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised. Cognee's local-only setting (COGNEE_BACKEND=local) goes in only through this step: say no and Cognee uses its own default backend, which this kit has not checked, so add that env key yourself."
   if xcode-select -p >/dev/null 2>&1; then  # a preview, before anything is asked or written
-    PREVIEW=$(python3 "$KIT/lib/merge_settings.py" --dry-run "$CL/settings.json" "$KIT/lib/hooks.json" $(printf '%s' "$SELECTED" | sed 's/ jev / /') 2>/dev/null)
+    PREVIEW=$(python3 "$KIT/lib/merge_settings.py" --dry-run "$CL/settings.json" "$KIT/lib/hooks.json" $(printf '%s' "$SELECTED" | sed 's/ jev / /') 2>/dev/null) || PREVIEW_FAILED=1
     say ""
-    if [ -n "$PREVIEW" ]; then say "This is what would change in settings.json (Jev's background hooks are asked about separately):"; printf '%s\n' "$PREVIEW"
+    if [ -n "${PREVIEW_FAILED:-}" ]; then say "Could not read ~/.claude/settings.json (is it valid JSON?), so no preview: adding hooks will fail until it is fixed."
+    elif [ -n "$PREVIEW" ]; then say "This is what would change in settings.json (Jev's background hooks are asked about separately):"; printf '%s\n' "$PREVIEW"
     else say "settings.json already has everything: nothing would change."; fi
   fi
   ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
@@ -474,7 +475,9 @@ PY
   # the render (tools such as graphify append their own section). Otherwise copy_file keeps yours and writes .kit-new.
   prev="$CL/kit/CLAUDE.rendered.md"
   n=$(wc -c < "$rendered" | tr -d ' ')
-  if [ -f "$CL/CLAUDE.md" ] && head -c "$n" "$CL/CLAUDE.md" | cmp -s - "$rendered"; then
+  if [ "$n" = 0 ]; then
+    fail "could not render CLAUDE.md from the template: yours is left as it is"  # an empty render would match any file next run
+  elif [ -f "$CL/CLAUDE.md" ] && head -c "$n" "$CL/CLAUDE.md" | cmp -s - "$rendered"; then
     ok "unchanged ~/.claude/CLAUDE.md"; cp "$rendered" "$prev"
   elif [ -f "$CL/CLAUDE.md" ] && [ -f "$prev" ] && head -c "$(wc -c < "$prev" | tr -d ' ')" "$CL/CLAUDE.md" | cmp -s - "$prev"; then
     # Untouched since the kit wrote it (tools may have appended below): swap in the new render, keep what follows.
@@ -541,7 +544,7 @@ if has safety; then
 fi
 if has verify; then
   copy_file "$KIT/files/hooks/verify-done.py" "$CL/hooks/verify-done.py" exec replace
-  todo "Done checks: in each project you want checked, add an executable .claude/verify (e.g. '#!/bin/sh' then 'npm test --silent'); optionally .claude/lint, which gets the edited file's path."
+  todo "Done checks: in each project you want checked, add an executable .claude/verify (e.g. '#!/bin/sh' then 'npm test --silent'); optionally .claude/lint, which gets the edited file's path. Then allow that project once: python3 ~/.claude/hooks/verify-done.py allow <project folder> (checks never run in a project you did not allow)."
 fi
 if has session-title; then
   copy_file "$KIT/files/hooks/session-title.py" "$CL/hooks/session-title.py" exec replace
@@ -685,6 +688,27 @@ PY
   todo "Model pilot: after the restart, type /pilot status in Claude Code. The row above the prompt shows each pick and what really ran; /pilot cost compares a helper agent, doing it in place and a fresh chat."
 fi
 
+# Jev consent lives in policy.json: sites_off lists what the user did not agree to, sites_asked what was ever asked.
+# "ask" records this run's answers; "keep" (any run without the Jev part) turns off every site never asked about,
+# so an upgrade that brings a new Jev caller (or a policy from an older kit) never sends without consent.
+record_jev_consent() {
+  python3 - "$1" "$CL/jev/policy.json" "$KIT/files/jev/policy.json" "$JEV_SHARE$([ "${JEV_HOOKS:-no}" = yes ] && echo ' hooks')" <<'PY'
+import json, os, sys
+mode, path, default, share = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].split()
+d = json.load(open(path)) if os.path.exists(path) else json.load(open(default))
+pairs = (("house-rules-recall", "recall"), ("house-rules-mine", "mine"), ("codegraph-gate", "code"), ("model-pilot", "pilot"),
+         ("jev-gate", "hooks"))
+if mode == "ask":
+    d["sites_off"] = [s for s, w in pairs if w not in share]
+    d["sites_asked"] = [s for s, _ in pairs]
+else:
+    asked = d.get("sites_asked", [])
+    d["sites_off"] = sorted(set(d.get("sites_off", [])) | {s for s, _ in pairs if s not in asked})
+os.makedirs(os.path.dirname(path), exist_ok=True)
+json.dump(d, open(path + ".tmp", "w"), indent=2); os.replace(path + ".tmp", path)
+PY
+}
+
 # ---------------------------------------------------------------- judge
 if has jev; then
   for f in jev jev-gate; do copy_file "$KIT/files/bin/$f" "$BIN/$f" exec replace; done
@@ -692,18 +716,10 @@ if has jev; then
   printf '%s\n' "${JEV_HOOKS:-no}" > "$CL/kit/jev-hooks"
   # The policy is yours after the first install (thresholds, skip_paths); only sites_off is set here, from your answers.
   mkdir -p "$CL/jev"; [ -f "$CL/jev/policy.json" ] || copy_file "$KIT/files/jev/policy.json" "$CL/jev/policy.json" data keep
-  # Parts the user did not agree to: listed in the policy, so jev_lib never sends for them.
-  python3 - "$CL/jev/policy.json" "$KIT/files/jev/policy.json" "$JEV_SHARE$([ "$JEV_HOOKS" = yes ] && echo ' hooks')" <<'PY' && ok "Jev may send for: ${JEV_SHARE:- nothing}" || fail "could not record the Jev choices in ~/.claude/jev/policy.json"
-import json, os, sys
-path, default, share = sys.argv[1], sys.argv[2], sys.argv[3].split()
-d = json.load(open(path)) if os.path.exists(path) else json.load(open(default))
-pairs = (("house-rules-recall", "recall"), ("house-rules-mine", "mine"), ("codegraph-gate", "code"), ("model-pilot", "pilot"),
-         ("jev-gate", "hooks"))
-d["sites_off"] = [s for s, w in pairs if w not in share]
-os.makedirs(os.path.dirname(path), exist_ok=True)
-json.dump(d, open(path + ".tmp", "w"), indent=2); os.replace(path + ".tmp", path)
-PY
+  record_jev_consent ask && ok "Jev may send for: ${JEV_SHARE:- nothing}" || fail "could not record the Jev choices in ~/.claude/jev/policy.json"
   todo "Jev: store your TypeSafe key in the macOS Keychain: security add-generic-password -s typesafe-api-key -a \"\$USER\" -T '' -w   (it prompts for the key; nothing lands in a file; -T '' makes macOS ask before any program reads it)."
+elif [ -f "$CL/jev/policy.json" ]; then
+  record_jev_consent keep || fail "could not check the Jev choices in ~/.claude/jev/policy.json"
 fi
 if has mjudge; then
   copy_file "$KIT/files/bin/mjudge" "$BIN/mjudge" exec replace

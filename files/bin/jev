@@ -14,6 +14,7 @@ is in sites_off, or --cwd (default the current folder) is under a skip_paths ent
 """
 import argparse
 import concurrent.futures
+import http.client
 import json
 import re
 import sys
@@ -52,13 +53,15 @@ URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-latest"
 BATCH = 40  # items per request; batches run in parallel
 SECRET = re.compile(
-    r"-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|\bsk-[A-Za-z0-9_-]{20,}|\bsk_(?:live|test)_[A-Za-z0-9]{10,}"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|\bsk-[A-Za-z0-9_-]{20,}|\bsk_test_[A-Za-z0-9]{10,}"
     r"|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bnpm_[A-Za-z0-9]{30,}|xox[abpr]-[A-Za-z0-9-]{10,}"
+    r"|AIza[0-9A-Za-z_-]{35}|\beyJ[\w-]{10,}\.[\w-]{10,}\.|\b[rs]k_live_[A-Za-z0-9]{10,}|\bhf_[A-Za-z0-9]{30,}|\bglpat-[\w-]{20}"
+    r"|hooks\.slack\.com/services/|(?i:\bauthorization\s*:\s*basic\s+[A-Za-z0-9+/=]{12,})"  # Google key, JWT, Stripe/HF/GitLab, Slack webhook, Basic auth
     r"|(?i:\bbearer\s+\S{20,})|://[^/\s:@]+:[^/\s@]+@"  # Authorization header; URL user:password@
     r"|(?i:\baws.{0,30}?[\"'\s:=]+)(?=[A-Za-z0-9/+]*[A-Z])(?=[A-Za-z0-9/+]*[a-z])[A-Za-z0-9/+]{40}\b"  # AWS secret access key near an aws label
     # a credential name (keyword + up to 40 name characters), bare or quoted (JSON), then any value of 8+; the keyword is found
     # directly, never behind a leading \w*, so long text is scanned in linear time
-    r"|(?i:(?:password|passwd|secret|api[_-]?key)\w{0,40}[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
+    r"|(?i:(?:password|passwd|secret|api[_-]?key)\w{0,40}[\"']?\s*[:=]\s*(?:\"[^\"\n]{8,}\"|'[^'\n]{8,}'|[\"']?[^\s\"']{8,}))"  # a quoted value may hold spaces
     # "token": a count (max_tokens, token_count) with a plain numeric value is telemetry; anything else of 8+ is a credential
     r"|(?i:token(?!(?:s|_counts?)[\"']?\s*[:=]\s*[\"']?[\d.]+[\"']?(?:[,;)}\]\s]|$))\w{0,40}[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
 )
@@ -96,7 +99,7 @@ def call(body: dict) -> dict:
                 time.sleep(2 ** attempt)
                 continue
             die(f"HTTP {e.code}: {e.read().decode(errors='replace')[:200]}")
-        except (urllib.error.URLError, TimeoutError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:  # 3.9: socket.timeout and RemoteDisconnected are neither
             if attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
@@ -222,35 +225,47 @@ def selftest() -> None:
     many = [f"item {n}: {'broken build' if n % 2 else 'all green'}" for n in range(45)]  # > BATCH: two requests
     flags, used = judge("noul", "Does this report a failure?", many, "", {}, [])
     assert len(flags) == 45 and flags[1]["noul"] > flags[0]["noul"], "batch ordering wrong"
-    assert SECRET.search("api_key = abcdef1234567890"), "secret guard missed"  # scan:allow gitleaks:allow (fake test value)
     print(f"selftest ok · noul {[round(x, 2) for x in p]} · 45-item batch tokens in={used['input_tokens']}")
 
 
-
 def offline_test() -> None:
-    """No network: the credential guard and the policy refusal. Run it with a throwaway HOME."""
-    import io
-    import tempfile
+    """No network: the credential guard, the policy refusal and 3.9 network errors. Run it with a throwaway HOME."""
+    import contextlib, io, socket, tempfile  # noqa: E401
     x = "Ab3dEf7hJk9mNp2qRs5tUv8wXy1zAb4cDe6fGh0j"  # fake 40-char value, built up below so scanners stay quiet
-    hits = ['"api_key": "' + x[:16] + '"', "client_secret=" + x[:12], "DB_PASSWORD: '" + x[:10] + "'",
-            "sk_" + "live_" + x[:24], "sk_" + "test_" + x[:24], "github_" + "pat_" + x[:30], "npm_" + x[:36],
-            "Authorization: Bearer " + x[:32], "postgres://admin:" + x[:8] + "@db.example.com/app",
-            "aws_secret_access_key = " + x, '"SecretAccessKey": "' + x + '"', "AWS secret " + x,
-            "api_key = " + "abcdef1234567890"]
+    hits = ['"api_key": "' + x[:16] + '"', "client_secret=" + x[:12], "DB_PASSWORD: '" + x[:10] + "'", "sk_" + "live_" + x[:24], "sk_" + "test_" + x[:24],
+            "github_" + "pat_" + x[:30], "npm_" + x[:36], "Authorization: Bearer " + x[:32], "postgres://admin:" + x[:8] + "@db.example.com/app",
+            "aws_secret_access_key = " + x, '"SecretAccessKey": "' + x + '"', "AWS secret " + x, "api_key = " + "abcdef1234567890", "pass" + "word=hunter2hunter2",
+            "pass" + "word=1234!abcd", "api_" + "key=12345678901234567890", 'tok' + 'en: "9999aaaaBBBB"',  # a value that only STARTS with digits is still a credential
+            "refresh_" + "token=\"12345678,abcdefgh\"", "tok" + "en=12345678;abcdefgh", "REFRESH_" + 'TOKEN=12345678"abcdefghijklmnop"',
+            '{"refresh_' + 'token":"12345678[abcdefghijklmnop]"}', "access_" + "token=1234567890", "ACCESS_" + "TOKENS=synthetic-example-123",  # a , or ; INSIDE the value is no count
+            "refresh_" + "tokens: opaque-credential-9", "AIza" + "x" * 35, "eyJ" + "a" * 12 + "." + "b" * 12 + ".sig", "Authorization: Bas" + "ic dXNlcjpwYXNzd29yZA==",
+            "https://hooks.sl" + "ack.com/services/T0/B0/c", "rk_" + "live_" + x[:24], "hf_" + x[:32], "glpat-" + x[:20], "pass" + 'word = "correct horse battery staple"',
+            "api_" + "key: 'two words here'"]  # Google, JWT, Basic, Slack, Stripe, HF, GitLab, quoted value with spaces
     for h in hits:
         assert SECRET.search(h), f"secret guard missed: {h[:24]}"
-    for ok in ("max_tokens: 12345678", "input_tokens=4096", "http://localhost:8080/a@b", "token budget",
-               "aws commit 0123456789abcdef0123456789abcdef01234567"):
+    for ok in ("max_tokens: 12345678", "input_tokens=4096", "http://localhost:8080/a@b", "token budget", "retries: 3", "token_count=123456789", '"max_tokens": 4096,',
+               "aws commit 0123456789abcdef0123456789abcdef01234567", "tokens: 4096}", "token_count=123456789 next", '[{"total_tokens":12345678,"output_tokens":10}]',
+               "Reset your password by clicking the link", "the api key section of the docs", "basic authentication is supported", "eyJ is a prefix, hf_ and glpat- too",
+               'pass' + 'word = "short"', "AIza is Google's key prefix", "see the hooks docs on slack.com"):  # a numeric token value is telemetry; prose is not a credential
         assert not SECRET.search(ok), f"false positive: {ok}"
-
+    global get_key
+    real = urllib.request.urlopen, time.sleep, get_key
+    get_key = lambda: "test-key"  # noqa: E731
+    for exc in (socket.timeout("t"), http.client.RemoteDisconnected("r"), http.client.IncompleteRead(b"")):
+        urllib.request.urlopen, time.sleep = (lambda *a, **k: (_ for _ in ()).throw(exc)), lambda s: None  # noqa: B023
+        try:
+            call({})
+            raise AssertionError("call must not succeed")
+        except SystemExit as e:  # 3.9: socket.timeout and RemoteDisconnected are not URLError
+            assert e.code == 2, f"{type(exc).__name__} must exit 2 (Jev unavailable), got {e.code}"
+    urllib.request.urlopen, time.sleep, get_key = real
     import jev_lib
     d = Path(tempfile.mkdtemp())
     jev_lib.POLICY = d / "policy.json"
-    (d / "client").mkdir()
-    (d / "clientele").mkdir()
+    [(d / sub).mkdir() for sub in ("client", "clientele")]
     jev_lib.POLICY.write_text(json.dumps({"sites_off": ["off-site"], "skip_paths": [str(d / "client")]}))
     assert policy_allows("cli", str(d)) and policy_allows("cli", str(d / "clientele"))
-    assert not policy_allows("off-site", str(d)) and not policy_allows("cli", str(d / "client"))
+    assert not (policy_allows("off-site", str(d)) or policy_allows("cli", str(d / "client")))
 
     def refused(*argv) -> bool:
         global call
@@ -263,38 +278,21 @@ def offline_test() -> None:
         finally:
             call, sys.stdin = real, sys.__stdin__
         return False
-    assert refused("--site", "off-site", "--cwd", str(d))
-    assert refused("--cwd", str(d / "client" / "sub"))
+    assert refused("--site", "off-site", "--cwd", str(d)) and refused("--cwd", str(d / "client" / "sub"))
     jev_lib.POLICY.write_text(json.dumps({"enabled": False}))
     assert refused("--cwd", str(d)), "enabled false must refuse"
-    for text in ("pass" + "word=1234!abcd", "api_" + "key=1234-abcd5678", "pass" + "word=1234567890", "api_" + "key=12345678901234567890", 'tok' + 'en: "9999aaaaBBBB"'):
-        assert SECRET.search(text), text  # a value that only STARTS with digits is still a credential
-    for text in ("max_tokens: 12345678", "token_count=123456789", "retries: 3"):
-        assert not SECRET.search(text), text  # an all-numeric value is telemetry
-    assert SECRET.search("pass" + "word=hunter2hunter2"), "the filter itself"
-    import io, contextlib
     for args in (["noul", "Does pass" + "word=hunter2hunter2 work?"], ["choice", "ok?", "-o", "a=api_" + "key=abcdefgh12345", "-o", "b=fine"], ["score", "ok?", "-l", "low", "-l", "secret" + "=hunter2hunter2"]):
         sys.stdin = io.StringIO("item\n")
         err = io.StringIO()
         try:
             with contextlib.redirect_stderr(err):
                 main(args)
+            raise AssertionError(f"a credential in the question, an option or a level must stop the request: {args}")
         except SystemExit as e:
             assert e.code == 2 and "credential" in err.getvalue(), (args, err.getvalue())  # refused for the credential, before any request
-        else:
-            raise AssertionError(f"a credential in the question, an option or a level must stop the request: {args}")
-    for text in ("refresh_" + "token=\"12345678,abcdefgh\"", "tok" + "en=12345678;abcdefgh",
-                 '{"refresh_' + 'token":"12345678[abcdefghijklmnop]"}', 'REFRESH_' + 'TOKEN=12345678"abcdefghijklmnop"', "access_" + "token=1234567890"):
-        assert SECRET.search(text), text  # a comma or semicolon INSIDE the value does not make it a count
-    for text in ('"max_tokens": 4096,', "tokens: 4096}", "token_count=123456789 next", '[{"total_tokens":12345678,"output_tokens":10}]'):
-        assert not SECRET.search(text), text
-    import time as _t
-    t0 = _t.perf_counter()
-    for blob in ("a" * 40000 + " " + "Q" * 40000, "token" * 6400, "password" * 6400, "secret_" * 6400):
-        SECRET.search(blob)
-    assert _t.perf_counter() - t0 < 0.5, "the filter must scan long text in linear time"
-    assert SECRET.search("ACCESS_" + "TOKENS=synthetic-example-123") and SECRET.search("refresh_" + "tokens: opaque-credential-9")
-    assert not SECRET.search('"total_tokens":12345678,"output_tokens":10')
+    t0 = time.perf_counter()
+    [SECRET.search(blob) for blob in ("a" * 40000 + " " + "Q" * 40000, "token" * 6400, "password" * 6400, "secret_" * 6400)]
+    assert time.perf_counter() - t0 < 0.5, "the filter must scan long text in linear time"
     print("jev offline test ok")
 
 

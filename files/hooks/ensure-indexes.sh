@@ -64,10 +64,10 @@ build() { # $1 = shell command (runs in the repo; reads TO CG GF sig stamp from 
   find "$lock" -maxdepth 0 -mmin +70 -exec rmdir {} \; 2>/dev/null
   mkdir "$lock" 2>/dev/null || return 0
   if [ "$mode" = fg ]; then   # fg mode: wait, report failure via exit code
-    ( cd "$r" && { echo "[$(date '+%F %T')] $1"; sh -c "$1"; } >> "$log" 2>&1 ) </dev/null; rc=$?
+    ( cd "$r" && { echo "[$(date '+%F %T')] $1"; sh -c "$1"; c=$?; echo "[rc=$c]"; exit $c; } >> "$log" 2>&1 ) </dev/null; rc=$?
     rmdir "$lock"; return $rc
   fi
-  ( cd "$r" && { echo "[$(date '+%F %T')] $1"; sh -c "$1"; } >> "$log" 2>&1; rmdir "$lock" ) </dev/null >/dev/null 2>&1 &   # detach: hook must not wait on the build
+  ( cd "$r" && { echo "[$(date '+%F %T')] $1"; sh -c "$1"; echo "[rc=$?]"; } >> "$log" 2>&1; rmdir "$lock" ) </dev/null >/dev/null 2>&1 &   # detach: hook must not wait on the build
 }
 
 init=""
