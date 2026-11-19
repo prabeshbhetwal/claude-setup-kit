@@ -1,0 +1,36 @@
+name: checks
+
+# The same three checks run locally before every push: the kit audit (with its proofs), the secret/path scan,
+# and Model pilot's tests. macOS because the kit targets it (launchd, Apple's python3, `script`).
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit (self-checks and proofs)
+        run: /usr/bin/python3 lib/audit.py
+      - name: Scan (personal data, absolute paths)
+        run: bash scan.sh
+
+  model-pilot:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Claude Code CLI (provides the plugin test runtime)
+        run: npm install -g @anthropic-ai/claude-code@2.1.311
+      - name: Model pilot tests
+        working-directory: mods/model-pilot
+        run: claude plugin test .
