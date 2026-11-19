@@ -24,6 +24,7 @@ It takes about a minute, touches nothing of yours (every install it tries runs i
 - Bad flags (`--tiers bogus`, `--only bogus`, a missing value) are refused with exit code 2; `--list` and `--help` work.
 - A non-macOS run stops before it asks anything.
 - Each tool that needs no prerequisites is installed into an empty home folder; `doctor.sh` must then report no failures, `settings.json` must still be valid JSON, and a second run must change nothing.
+- Installing a tool shows the `settings.json` diff first; `--uninstall session-title` removes only the kit's entries and a second run changes nothing.
 - With the token report switched off, both jobs are still scheduled (the report job then does nothing), so `--set` can turn it back on.
 - With no terminal and no options, the installer stops instead of answering its own questions.
 

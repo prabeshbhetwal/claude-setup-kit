@@ -155,6 +155,85 @@ period = open(os.path.join(home, ".claude/kit/report-period")).read().strip() if
 if have != want_jobs or period != "off":  # off: both jobs exist, the report job does nothing, so --set turns it back on
     fail(f"--report off: want both jobs and period 'off', found {have}, period '{period}'")
 
+# ---------------------------------------------------------------- regressions: each replays a problem an outside review found
+def hook(script, event, *args):
+    r = subprocess.run([sys.executable, os.path.join(KIT, "files/hooks", script), *args], input=json.dumps(event),
+                       capture_output=True, text=True, env={**os.environ, "KIT_VERIFY_ALLOW": os.path.join(T, "none")})
+    return r.returncode, r.stdout + r.stderr
+
+
+for cmd in ("rm -rf /tmp/../etc/x", "time rm x", "nice -n 5 rm x", 'bash -c "rm x"', "sh -c 'rm -rf build'"):
+    if "deny" not in hook("block-rm.py", {"tool_name": "Bash", "tool_input": {"command": cmd}})[1]:
+        fail(f"regression: rm blocker lets through: {cmd}")
+if "deny" in hook("block-rm.py", {"tool_name": "Bash", "tool_input": {"command": "rm -rf /tmp/claude-x/probe"}})[1]:
+    fail("regression: rm blocker blocks a temp folder")
+proj = os.path.join(T, "proj"); os.makedirs(os.path.join(proj, ".claude"))
+open(os.path.join(proj, ".claude/verify"), "w").write("#!/bin/sh\nexit 1\n"); os.chmod(os.path.join(proj, ".claude/verify"), 0o755)
+hook("verify-done.py", {"session_id": "r", "cwd": proj, "tool_input": {"file_path": "a"}}, "edit")
+if hook("verify-done.py", {"session_id": "r", "cwd": proj}, "stop")[0] != 0:
+    fail("regression: done checks ran in a project nobody allowed")
+rc, out = sh(["bash", "install.sh"], H("h-nokb"), "")
+if rc != 2:
+    fail(f"regression: no terminal and no options must stop (exit 2), got {rc}")
+rc, out = sh(["bash", "install.sh", "--skip", "typo", "--tiers", "core"], H("h-skip"), "")
+if rc != 2 or "Ready to install" in out:
+    fail("regression: a bad --skip must stop before anything is shown")
+hk = json.load(open(os.path.join(KIT, "lib/hooks.json")))
+deny = " ".join(hk["guard"]["deny"])
+for pat in ("Read(**/.env)", "Read(.env.*)", "*.pem", "git push * +*", "git -C * reset --hard", "git checkout -- .", "git restore .", "git stash clear", "find-generic-password"):
+    if pat not in deny:
+        fail(f"regression: deny list lacks {pat}")
+for txt, label in ((readme, "README"), (open(os.path.join(KIT, "lib/catalog.txt")).read(), "catalog")):
+    for phrase in ("Claude can never read", "runs by itself on the 1st", "five short guides", "Five short guides"):
+        if phrase in txt:
+            fail(f"regression: {label} again says {phrase}.")
+rc, out = sh(["bash", "install.sh", "--only", "mjudge", "--yes"], H("h-mj"), "")
+if os.path.exists(H("h-mj/.claude/hooks/jev-hooks.py")):
+    fail("regression: --only mjudge with nobody to ask pulled in paid Jev")
+home = H("h-jev"); os.makedirs(home)
+rc, out = sh(["bash", "install.sh", "--only", "jev", "--yes"], home, "")
+pol = os.path.join(home, ".claude/jev/policy.json")
+if not os.path.exists(pol) or set(json.load(open(pol)).get("sites_off", [])) != {"house-rules-recall", "house-rules-mine"}:
+    fail("regression: Jev installs with its data flows on instead of off")
+if os.path.exists(os.path.join(home, ".claude/settings.json")) and "jev-hooks.py" in open(os.path.join(home, ".claude/settings.json")).read():
+    fail("regression: Jev background hooks added without a yes")
+home = H("h-claudemd"); os.makedirs(home)
+sh(["bash", "install.sh", "--only", "rules", "--yes"], home, "")
+cm = os.path.join(home, ".claude/CLAUDE.md")
+if not os.path.exists(cm):
+    fail("regression: rules install wrote no CLAUDE.md")
+else:
+    open(cm, "w").write("my own edit\n" + open(cm).read())  # an edit inside the kit-written part (text added after it is treated as a tool's)
+    tpl = os.path.join(KIT, "files/CLAUDE.template.md"); orig = open(tpl).read()
+    try:
+        open(tpl, "w").write(orig + "\nnew kit line\n")
+        sh(["bash", "install.sh", "--only", "rules", "--yes"], home, "")
+    finally:
+        open(tpl, "w").write(orig)
+    if "my own edit" not in open(cm).read() or not os.path.exists(cm + ".kit-new"):
+        fail("regression: an edited CLAUDE.md must be kept and the kit's version offered as .kit-new")
+home = H("h-setmonth"); os.makedirs(home)
+sh(["bash", "install.sh", "--only", "measure", "--report", "off"], home, "")
+if not os.path.exists(os.path.join(home, "Library/LaunchAgents/com.claude-setup-kit.token-report.plist")):
+    fail("regression: --set month after off needs the report job to exist")
+rc, out = sh([sys.executable, os.path.join(home, ".claude/hooks/token-report.py"), "--set", "month"], home)
+if "month" not in open(os.path.join(home, ".claude/kit/report-period")).read():
+    fail("regression: token-report.py --set month did not record the period")
+tipsrc = open(os.path.join(KIT, "mods/model-pilot/hooks/policy.ts")).read()
+if "start-up is small next to re-reading" in tipsrc:
+    fail("regression: the long Model pilot tip text is back (the app clips it)")
+
+home = H("h-uninstall"); os.makedirs(os.path.join(home, ".claude"))
+open(os.path.join(home, ".claude/settings.json"), "w").write('{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}}')
+rc, out = sh(["bash", "install.sh", "--only", "session-title", "--yes"], home)
+if "This is what would change in settings.json" not in out:
+    fail("regression: install must show the settings.json diff before writing")
+rc, out = sh(["bash", "install.sh", "--uninstall", "session-title"], home)
+cfg = json.load(open(os.path.join(home, ".claude/settings.json")))
+if cfg != {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}} or os.path.exists(os.path.join(home, ".claude/hooks/session-title.py")):
+    fail("regression: uninstall must remove only the kit's entries and the script, and keep the user's hooks")
+if sh(["bash", "install.sh", "--uninstall", "session-title"], home)[1].count("removed hook"):
+    fail("regression: a second uninstall must change nothing")
 shutil.rmtree(T, ignore_errors=True)  # only the throwaway folder this run made
 print(f"\n{len(bad)} failing check(s)")
 sys.exit(1 if bad else 0)

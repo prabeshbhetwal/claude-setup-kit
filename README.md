@@ -35,7 +35,7 @@ You need the Claude app (or a Claude Code plan) and an internet connection. Ever
 4. **It asks about anything that depends on something else.** Example: "Auto index hooks only works together with CodeGraph. Add CodeGraph as well?" Saying no leaves out the tool that needed it.
 5. **It asks before each kind of change, and says why:**
    - writing the rules file `~/.claude/CLAUDE.md` (it tells Claude when to use each tool). If you already have one, yours is kept and the kit's version is saved next to it as `CLAUDE.md.kit-new`;
-   - adding the kit's hooks to `~/.claude/settings.json` (backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised);
+   - adding the kit's hooks to `~/.claude/settings.json` (it first shows you the exact lines that would change; backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised);
    - how often you want the token report: weekly, fortnightly, monthly or off.
 6. **It shows the full list and asks "Go ahead?"** Nothing has changed up to this point. Saying no stops cleanly.
 7. **It checks your computer for what the tools need** and offers to install anything missing, one at a time, with a plain explanation:
@@ -94,6 +94,7 @@ Pick the tiers you want; `--list` prints every tool.
 | `--install-missing` | Install missing prerequisites without asking |
 | `--title-recheck 5`, `--title-spelling au` | Session titles: prompts between title checks (default 5), spelling `au` (default), `us` or `none` |
 | `--caveman-mode lite` | Caveman strength: lite, full (default), ultra (fragments only) |
+| `--uninstall session-title` | Take Dynamic session titles out again: its hook entries, script and settings file |
 | `--jev-share pilot,recall,mine` | Which parts may send text to TypeSafe through Jev (default: none). See [What leaves your Mac](#what-leaves-your-mac) |
 | `--jev-hooks yes` | Add Jev's background measuring hooks (default no) |
 | `--confirm-fable no` | Model pilot: `yes` (default) asks before the pilot runs a prompt on Fable and shows the cost against Opus; `no` lets it run without asking |
@@ -248,7 +249,7 @@ Jev never sends text that looks like a password or key. To keep a folder out ent
 
 - **Tested on macOS only.** Windows and Linux are not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
 - **Model pilot is macOS only and adds a short wait.** A judged prompt waits for the judge before its first token. Follow-ups and prompts where you chose the model are not judged. Its savings are estimates.
-- **Session titles need the Claude desktop app.** They call the app's session-title tool, so in the command line alone they do nothing. The spelling check catches common patterns only (`-ize`, `color`, `behavior` and similar), and whether a title fits the work is only prompted, not checked. Settings live in `~/.claude/kit/session-title.json`; to remove the tool, delete `~/.claude/hooks/session-title.py` and its two hook entries in `settings.json`.
+- **Session titles need the Claude desktop app.** They call the app's session-title tool, so the hook runs only when Claude Code reports the desktop app (`CLAUDE_CODE_ENTRYPOINT=claude-desktop`) and stays silent in the command line, headless runs and the SDK. If you decline a rename of a title you typed, your title is kept and the hook stops asking about it. The spelling check catches common patterns only (`-ize`, `color`, `behavior` and similar), and whether a title fits the work is only prompted, not checked. Settings live in `~/.claude/kit/session-title.json`; to remove the tool run `./install.sh --uninstall session-title` (it shows the change to `settings.json` first, backs it up, takes out only the kit's two hook entries and moves the script and its settings file aside; running it again changes nothing).
 - **Index hooks skip small repos.** They only build indexes for git repos with 10 or more source files, and never for your home folder.
 - **Licences of the installed tools differ.** context-mode is Elastic-2.0, so it cannot be offered as a managed service. RTK's default build includes a BUSL-1.1 engine, free for your own use; `RTK_EDITION=oss` gives the Apache-2.0-only build. remember uses a community licence with no commercial redistribution. The rest are MIT or Apache-2.0.
 

@@ -17,6 +17,7 @@ import os
 import shutil
 import sys
 import tempfile
+import difflib
 import time
 
 
@@ -65,12 +66,45 @@ def merge(settings: dict, fragment: dict, components: list) -> list:
     return changes
 
 
-def main(path: str, frag_path: str, components: list) -> None:
+def remove(settings: dict, fragment: dict, components: list) -> list:
+    """Take out the hooks the kit added for these components (matched by their `match` text). Nothing else is touched."""
+    changes = []
+    hooks = settings.get("hooks", {})
+    for comp in components:
+        for h in fragment.get(comp, {}).get("hooks", []):
+            event = h["event"]
+            match = h.get("match", h["command"])
+            for g in hooks.get(event, []):
+                keep = [x for x in g.get("hooks", []) if match not in x.get("command", "")]
+                if len(keep) != len(g.get("hooks", [])):
+                    changes.append(f"removed hook {event}: {h['command']}")
+                    g["hooks"] = keep
+            hooks[event] = [g for g in hooks.get(event, []) if g.get("hooks")]
+            if not hooks[event]:
+                hooks.pop(event, None)
+    if "hooks" in settings and not settings["hooks"]:
+        settings.pop("hooks")
+    return changes
+
+
+def show_diff(before: dict, after: dict, path: str) -> None:
+    a, b = (json.dumps(x, indent=2).splitlines() for x in (before, after))
+    for line in difflib.unified_diff(a, b, f"{path} (now)", f"{path} (after)", lineterm="", n=2):
+        print("    " + line)
+
+
+def main(path: str, frag_path: str, components: list, mode: str = "add") -> None:
+    """mode: add (write), dry-run (show the diff, write nothing) or remove (take the kit's hooks out)."""
     path = os.path.realpath(path)  # write through a symlink (stow, chezmoi), never replace it
     settings = json.load(open(path)) if os.path.exists(path) and os.path.getsize(path) else {}
+    before = json.loads(json.dumps(settings))
     fragment = json.load(open(frag_path))
-    changes = merge(settings, fragment, [c for c in components if c in fragment])
+    comps = [c for c in components if c in fragment]
+    changes = remove(settings, fragment, comps) if mode == "remove" else merge(settings, fragment, comps)
     if not changes:
+        return
+    show_diff(before, settings, path)  # shown before anything is written
+    if mode == "dry-run":
         return
     if os.path.exists(path):
         shutil.copy2(path, f"{path}.bak-kit-{time.strftime('%Y%m%d-%H%M%S')}")
@@ -83,7 +117,7 @@ def main(path: str, frag_path: str, components: list) -> None:
         shutil.copymode(path, tmp)  # keep the file's permissions (mkstemp creates 0600)
     os.replace(tmp, path)  # atomic: a crash never leaves a half-written settings.json
     for c in changes:
-        print("  + " + c)
+        print(("  - " if mode == "remove" else "  + ") + c)
 
 
 def selftest() -> None:
@@ -111,6 +145,13 @@ def selftest() -> None:
     assert s3["permissions"] == {"allow": ["Bash(ls *)"], "deny": ["Read(.env)", "Bash(git reset --hard *)"]}, s3
     assert s3["sandbox"] == {"enabled": False}, "an existing sandbox choice must be kept"
     assert merge(s3, f3, ["g"]) == [], "deny merge must be idempotent"
+    r = {"a": {"hooks": [{"event": "Stop", "type": "command", "command": "x", "match": "x"}]}}
+    s5 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}, {"type": "command", "command": "x"}]}]}}
+    assert len(remove(s5, r, ["a"])) == 1 and s5["hooks"]["Stop"][0]["hooks"] == [{"type": "command", "command": "mine"}], s5
+    assert remove(s5, r, ["a"]) == [], "removing twice changes nothing"
+    s6 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}, "env": {"K": "1"}}
+    remove(s6, r, ["a"])
+    assert s6 == {"env": {"K": "1"}}, s6
     print("selftest ok")
 
 
@@ -118,4 +159,6 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["selftest"]:
         selftest()
     else:
-        main(sys.argv[1], sys.argv[2], sys.argv[3:])
+        flag = sys.argv[1] if sys.argv[1] in ("--dry-run", "--remove") else ""
+        a = sys.argv[2:] if flag else sys.argv[1:]
+        main(a[0], a[1], a[2:], {"--dry-run": "dry-run", "--remove": "remove"}.get(flag, "add"))
