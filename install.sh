@@ -3,10 +3,13 @@
 #
 #   ./install.sh                      explain every tool, then ask which to install (recommended)
 #   ./install.sh --yes                no questions: core tier only (no keys, no paid services)
-#   ./install.sh --tiers core,guard,memory,routing,judge,deliberation   (no questions)
+#   ./install.sh --tiers core,guard,memory,routing,judge,deliberation,extras   (no questions)
 #   ./install.sh --only caveman,rtk   just these tools (dependencies are added)
 #   ./install.sh --list               print the catalogue and exit
 # Other options: --skip id,id  --caveman-mode lite|full|ultra  --handoff auto|250k|500k|750k|never  --confirm-fable yes|no
+#   --jev-share pilot,recall,mine|none   which kit parts may send text to TypeSafe through Jev (default none)
+#   --jev-hooks yes|no   add Jev's background measuring hooks (they send tool output to TypeSafe; default no)
+#   --title-recheck N  --title-spelling au|us|none   session titles: prompts between checks (default 5), spelling (default au)
 #   --report week|fortnight|month|off   how often the token report runs (default month)
 #   --install-missing   install missing prerequisites (Homebrew, Node.js, uv, Claude Code CLI) without asking
 #
@@ -19,11 +22,11 @@ CL="$HOME/.claude"
 BIN="$HOME/.local/bin"
 TS=$(date +%Y%m%d-%H%M%S)
 CAT="$KIT/lib/catalog.txt"
-TIERS_ALL="core guard memory routing judge deliberation"
+TIERS_ALL="core guard memory routing judge deliberation extras"
 SELECTED=" "
 TODO=""
 FAILED=""
-MODE=ask; TIERS=""; ONLY=""; SKIP=""; HANDOFF=""; CONFIRM_FABLE=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
+MODE=ask; TIERS=""; ONLY=""; SKIP=""; TITLE_RECHECK=""; TITLE_SPELLING=""; JEV_HOOKS=""; JEV_SHARE=""; HANDOFF=""; CONFIRM_FABLE=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
 TTY=0; { : </dev/tty; } 2>/dev/null && TTY=1   # a keyboard to answer questions on
 
 say()  { printf '%s\n' "$*"; }
@@ -51,6 +54,10 @@ while [ $# -gt 0 ]; do
     --tiers) val "$1" "${2:-}"; TIERS=$(csv "$2"); MODE=yes; shift ;;
     --only) val "$1" "${2:-}"; ONLY=$(csv "$2"); shift ;;
     --skip) val "$1" "${2:-}"; SKIP=$(csv "$2"); shift ;;
+    --jev-share) val "$1" "${2:-}"; JEV_SHARE=$(csv "$2"); [ "$JEV_SHARE" = none ] && JEV_SHARE=" "; shift ;;
+    --jev-hooks) val "$1" "${2:-}"; JEV_HOOKS=$2; shift ;;
+    --title-recheck) val "$1" "${2:-}"; TITLE_RECHECK=$2; shift ;;
+    --title-spelling) val "$1" "${2:-}"; TITLE_SPELLING=$2; shift ;;
     --caveman-mode) val "$1" "${2:-}"; CAVEMODE=$2; shift ;;
     --handoff) val "$1" "${2:-}"; HANDOFF=$2; shift ;;
     --confirm-fable) val "$1" "${2:-}"; CONFIRM_FABLE=$2; shift ;;
@@ -123,11 +130,17 @@ tier_title() {
     memory) echo "MEMORY: Claude remembers past chats and decisions. No key needed here (Supermemory, which needs an account, was in the first group)." ;;
     routing) echo "MODEL ROUTING: uses cheaper models where they do the job just as well. Free." ;;
     judge) echo "JUDGE TOOLS: fast outside yes/no checks over long lists and media. Need API keys (one paid, one with a free tier)." ;;
+    extras) echo "EXTRAS: optional comforts, none of them needed. Free." ;;
     deliberation) echo "PLAN CHECKS: test a plan before you build it. Free (Deliberation, which needs other AI accounts, was in the first group)." ;;
   esac
 }
 
 # ---------------------------------------------------------------- selection
+for id in $SKIP; do [ -n "$(field "$id" 1)" ] || { say "Unknown tool in --skip: $id (see --list)"; exit 2; }; done
+if [ "$MODE" = ask ] && [ -z "$ONLY" ] && [ "$TTY" = 0 ]; then
+  say "No keyboard to answer the questions, so nothing was chosen or changed."
+  say "Pass --yes (core tier only), --tiers core,memory,... or --only tool,tool (see --list)."; exit 2
+fi
 if [ -n "$ONLY" ]; then
   for id in $ONLY; do [ -n "$(field "$id" 1)" ] && add "$id" || { say "Unknown tool: $id (see --list)"; exit 2; }; done
 elif [ "$MODE" = yes ]; then
@@ -151,7 +164,6 @@ else
 fi
 # Skips first: a skipped tool also removes whatever needs it, so dependencies never pull it back in.
 for id in $SKIP; do
-  [ -n "$(field "$id" 1)" ] || { say "Unknown tool in --skip: $id (see --list)"; exit 2; }
   drop "$id"
   for pair in indexes:codegraph indexes:graphify mjudge:jev; do
     a=${pair%%:*}; b=${pair#*:}
@@ -163,6 +175,9 @@ for pair in indexes:codegraph indexes:graphify mjudge:jev; do
   a=${pair%%:*}; b=${pair#*:}
   has "$a" && ! has "$b" || continue
   say ""
+  if { [ "$MODE" = yes ] || [ "$TTY" = 0 ]; } && [ -z "$TIERS" ]; then
+    drop "$a"; info "$(field "$a" 3) left out: it needs $(field "$b" 3), and nobody could be asked (add $b to --only to install both)"; continue
+  fi
   if ask "$(field "$a" 3) only works together with $(field "$b" 3). Add $(field "$b" 3) as well? (No = leave out $(field "$a" 3))" y; then
     add "$b"; info "$(field "$b" 3) added"
   else drop "$a"; info "$(field "$a" 3) left out"; fi
@@ -175,23 +190,34 @@ if has caveman && [ -z "$CAVEMODE" ]; then
     CAVEMODE=${CAVEMODE:-full}
   fi
 fi
+if has session-title; then
+  case "$TITLE_RECHECK" in ''|*[!0-9]*|0) [ -z "$TITLE_RECHECK" ] || info "Title check '$TITLE_RECHECK' is not a number of prompts: using 5"; TITLE_RECHECK=5 ;; esac
+  if [ -z "$TITLE_SPELLING" ]; then
+    TITLE_SPELLING=au
+    if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
+      printf '\n  Session titles: spelling au (Australian, -ise), us (American, -ize) or none. [au] '; read -r TITLE_SPELLING </dev/tty
+      TITLE_SPELLING=${TITLE_SPELLING:-au}
+    fi
+  fi
+  case "$TITLE_SPELLING" in au|us|none) ;; *) info "Title spelling '$TITLE_SPELLING' not known: using au"; TITLE_SPELLING=au ;; esac
+fi
 case "$CAVEMODE" in ''|lite|full|ultra) ;; *) info "Caveman mode '$CAVEMODE' not known: using full"; CAVEMODE=full ;; esac
 
 # ---------------------------------------------------------------- the changes, each asked for first (--yes: all yes)
-DO_SETTINGS=1; DO_SCHED=1
+DO_SETTINGS=1
 if has rules; then
   say ""
   say "Rules file: Claude reads ~/.claude/CLAUDE.md at the start of every chat. The kit's version tells it when"
   say "to use each tool you picked; without it Claude often forgets they exist. Five short guides go in ~/.claude/guides/."
-  [ -f "$CL/CLAUDE.md" ] && say "You already have a CLAUDE.md: it is kept as it is, and the kit's version is saved next to it as CLAUDE.md.kit-new for you to merge."
+  [ -f "$CL/CLAUDE.md" ] && say "You already have a CLAUDE.md. If you edited it, yours is kept and any newer kit version is saved next to it as CLAUDE.md.kit-new; if you did not, it is updated (old copy backed up)."
   ask "Write the rules file and guides?" y || { drop rules; info "rules file left out"; }
 fi
-for id in rtk safety indexes routing cognee jev measure guard sandbox verify; do
+for id in rtk safety indexes routing cognee jev measure guard sandbox verify session-title; do
   has $id || continue
   say ""
   say "Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command)."
-  say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules and done checks only work through them. They are added to"
-  say "~/.claude/settings.json: the file is backed up first, nothing in it is removed or changed, only missing entries are added."
+  say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules, done checks and session titles only work through them. They are added to"
+  say "~/.claude/settings.json: backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised. Cognee's local-only setting also goes in through this step."
   ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
   break
 done
@@ -207,15 +233,41 @@ if has measure && [ -z "$REPORT" ]; then
     case "$a" in 1) REPORT=week ;; 2) REPORT=fortnight ;; 4) REPORT=off ;; *) REPORT=month ;; esac
   fi
 fi
-case "$REPORT" in ''|week|fortnight|month) ;; off) DO_SCHED=0 ;; *) info "Report choice '$REPORT' not known: using month"; REPORT=month ;; esac
+case "$REPORT" in ''|week|fortnight|month|off) ;; *) info "Report choice '$REPORT' not known: using month"; REPORT=month ;; esac
+if has jev && [ -z "$JEV_HOOKS" ]; then
+  JEV_HOOKS=no
+  if [ "$MODE" = ask ] && [ "$TTY" = 1 ]; then
+    say ""
+    say "Jev's background hooks measure where Jev could help. Once your TypeSafe key is set they send to TypeSafe:"
+    say "every shell command Claude runs, up to 300 lines of large tool output (file reads, searches, web pages,"
+    say "connected tools) with your last prompt, the sender, subject and snippet of emails Claude reads, and helper"
+    say "agents' reports. Billed to your TypeSafe account. Jev itself works without them."
+    ask "Add Jev's background hooks?" n && JEV_HOOKS=yes
+  fi
+fi
+# Each flow to TypeSafe is its own question, default no (a paid Jev account is not consent to send prompts).
+if has jev && [ -z "$JEV_SHARE" ]; then
+  JEV_SHARE=" "
+  if [ "$MODE" = ask ] && [ "$TTY" = 1 ]; then
+    say ""; say "Jev: which parts of the kit may send text to TypeSafe? Each is optional; without it that part uses"
+    say "a judge on your Claude plan or plain rules instead. Credential-looking text is never sent."
+    if has model-pilot; then
+      ask "  Model pilot: send up to 3,000 characters of each prompt, a short digest of recent turns and each helper agent's task, to pick the model?" n && JEV_SHARE="$JEV_SHARE pilot"
+    fi
+    if has measure; then
+      ask "  House rules: send the first 200 characters of a prompt (emails, links, paths removed) when a saved rule might fit?" n && JEV_SHARE="$JEV_SHARE recall"
+      ask "  House rules: on Mondays, send last week's sentences where you corrected Claude (redacted), to find preferences?" n && JEV_SHARE="$JEV_SHARE mine"
+    fi
+  fi
+fi
+for w in $JEV_SHARE; do case "$w" in pilot|recall|mine) ;; *) say "Unknown --jev-share part: $w (pilot, recall, mine or none)"; exit 2 ;; esac; done
+case "$JEV_HOOKS" in ''|yes|no) ;; *) info "Jev hooks choice '$JEV_HOOKS' not known: using no"; JEV_HOOKS=no ;; esac
 if has model-pilot && [ "$(uname -s)" != Darwin ]; then drop model-pilot; info "Model pilot left out: it is macOS only"; fi
 if has model-badge && [ "$(uname -s)" != Darwin ]; then drop model-badge; info "Model badge left out: it is macOS only for now"; fi
 if has model-pilot; then
   # Two selectors would each pick a model for the same prompt. Only one can be on.
-  # xcode-select -p first: on a fresh Mac a bare python3 pops up Apple's install window in the middle of the questions.
-  OTHER=$(xcode-select -p >/dev/null 2>&1 && python3 -c 'import json,sys
-try: print(" ".join(k for k, v in json.load(open(sys.argv[1])).get("enabledPlugins", {}).items() if v is True and k.endswith("@claude-model-selector")))
-except Exception: pass' "$CL/settings.json" 2>/dev/null || true)
+  # grep, not python3: on a fresh Mac python3 is a stub that pops up Apple's install window mid-questions.
+  OTHER=$(grep -oE '"[^"]+@claude-model-selector"[[:space:]]*:[[:space:]]*true' "$CL/settings.json" 2>/dev/null | cut -d'"' -f2 | tr '\n' ' ' | sed 's/ $//' || true)
   if [ -n "$OTHER" ]; then
     say ""
     say "Model pilot: another model selector is switched on ($OTHER)."
@@ -334,12 +386,13 @@ copy_file() {
   local src=$1 dst=$2 kind=$3 pol=$4
   if [ -f "$dst" ] && cmp -s "$src" "$dst"; then ok "unchanged $(short "$dst")"; return; fi
   if [ -f "$dst" ] && [ "$pol" = keep ]; then
-    cp "$src" "$dst.kit-new"; warn "kept your $(short "$dst"); kit version at $(short "$dst").kit-new"
+    cp "$src" "$dst.kit-new" || { fail "could not write $(short "$dst").kit-new"; return 1; }; warn "kept your $(short "$dst"); kit version at $(short "$dst").kit-new"
     todo "Compare $(short "$dst") with $(short "$dst").kit-new and merge what you want."
     return
   fi
   [ -f "$dst" ] && cp -p "$dst" "$dst.bak-kit-$TS"
-  cp "$src" "$dst"; [ "$kind" = exec ] && chmod +x "$dst"
+  cp "$src" "$dst" || { fail "could not copy $(short "$src") to $(short "$dst")"; return 1; }
+  [ "$kind" = exec ] && chmod +x "$dst"
   ok "installed $(short "$dst")"
 }
 
@@ -356,7 +409,12 @@ plugin() { # plugin MARKETPLACE_SOURCE MARKETPLACE_NAME PLUGIN
   fi
   st=$(pl_state "$id")
   case "$st" in
-    enabled) ok "plugin $id already installed"; return 0 ;;
+    enabled)
+      if [ "$mp" = claude-setup-kit ]; then  # the kit's own mods: refresh Claude's cached copy from the files just copied
+        claude plugin marketplace update "$mp" >/dev/null 2>&1
+        claude plugin update "$id" >/dev/null 2>&1 && ok "plugin $id updated (restart Claude to load it)" || warn "could not update $id: claude plugin update $id"
+      else ok "plugin $id already installed"; fi
+      return 0 ;;
     disabled) warn "plugin $id is installed but disabled; left as you set it (claude plugin enable $id)"; return 0 ;;
   esac
   if claude plugin install "$id" --scope user >/dev/null 2>&1; then ok "plugin $id"
@@ -365,7 +423,7 @@ plugin() { # plugin MARKETPLACE_SOURCE MARKETPLACE_NAME PLUGIN
 
 # ---------------------------------------------------------------- rules + guides (first: later tools append to CLAUDE.md)
 if has rules; then
-  rendered=$(mktemp)
+  rendered=$(mktemp "${TMPDIR:-/tmp}/kit-claude.XXXXXX") || { fail "could not make a temporary file for CLAUDE.md"; rendered=/dev/null; }
   python3 - "$KIT/files/CLAUDE.template.md" "$rendered" $SELECTED $(cat "$CL/kit/installed" 2>/dev/null) <<'PY'
 import re, sys
 src, out, keep = sys.argv[1], sys.argv[2], set(sys.argv[3:])
@@ -378,10 +436,18 @@ PY
   # Current when: the kit's render is the same as last run (your edits since then are yours), or the file starts with
   # the render (tools such as graphify append their own section). Otherwise copy_file keeps yours and writes .kit-new.
   prev="$CL/kit/CLAUDE.rendered.md"
-  if [ -f "$CL/CLAUDE.md" ] && { cmp -s "$rendered" "$prev" ||
-       head -c "$(wc -c < "$rendered" | tr -d ' ')" "$CL/CLAUDE.md" | cmp -s - "$rendered"; }; then ok "unchanged ~/.claude/CLAUDE.md"
-  else copy_file "$rendered" "$CL/CLAUDE.md" data keep; fi
-  cp "$rendered" "$prev"
+  n=$(wc -c < "$rendered" | tr -d ' ')
+  if [ -f "$CL/CLAUDE.md" ] && head -c "$n" "$CL/CLAUDE.md" | cmp -s - "$rendered"; then
+    ok "unchanged ~/.claude/CLAUDE.md"; cp "$rendered" "$prev"
+  elif [ -f "$CL/CLAUDE.md" ] && [ -f "$prev" ] && head -c "$(wc -c < "$prev" | tr -d ' ')" "$CL/CLAUDE.md" | cmp -s - "$prev"; then
+    # Untouched since the kit wrote it (tools may have appended below): swap in the new render, keep what follows.
+    cp -p "$CL/CLAUDE.md" "$CL/CLAUDE.md.bak-kit-$TS"
+    { cat "$rendered"; tail -c +"$(( $(wc -c < "$prev" | tr -d ' ') + 1 ))" "$CL/CLAUDE.md.bak-kit-$TS"; } > "$CL/CLAUDE.md"
+    ok "updated ~/.claude/CLAUDE.md to the kit's new version; anything added below it is kept (old copy: CLAUDE.md.bak-kit-$TS)"; cp "$rendered" "$prev"
+  else
+    copy_file "$rendered" "$CL/CLAUDE.md" data keep
+    cmp -s "$rendered" "$CL/CLAUDE.md" && cp "$rendered" "$prev"  # recorded only once applied, so a kept .kit-new is offered again
+  fi
   grep -q '{{' "$CL/CLAUDE.md" 2>/dev/null &&
     todo "Fill the {{...}} placeholders in ~/.claude/CLAUDE.md (Identity section): your name, place and time zone, form of address, English variant."
   for f in coding connectors-and-skills knowledge-and-projects token-tools; do
@@ -439,6 +505,13 @@ if has verify; then
   copy_file "$KIT/files/hooks/verify-done.py" "$CL/hooks/verify-done.py" exec replace
   todo "Done checks: in each project you want checked, add an executable .claude/verify (e.g. '#!/bin/sh' then 'npm test --silent'); optionally .claude/lint, which gets the edited file's path."
 fi
+if has session-title; then
+  copy_file "$KIT/files/hooks/session-title.py" "$CL/hooks/session-title.py" exec replace
+  mkdir -p "$CL/kit"
+  if [ -f "$CL/kit/session-title.json" ]; then ok "kept existing $(short "$CL/kit/session-title.json")"
+  else printf '{"recheck": %s, "spelling": "%s"}\n' "${TITLE_RECHECK:-5}" "${TITLE_SPELLING:-au}" > "$CL/kit/session-title.json" && ok "session titles: check every ${TITLE_RECHECK:-5} prompts, $TITLE_SPELLING spelling (edit $(short "$CL/kit/session-title.json"))"; fi
+  todo "Session titles: they need the Claude desktop app. The Claude Code command line alone has no title tool, so the hook does nothing there."
+fi
 if has indexes; then
   copy_file "$KIT/files/hooks/ensure-indexes.sh" "$CL/hooks/ensure-indexes.sh" exec replace
   copy_file "$KIT/files/hooks/codegraph-gate.py" "$CL/hooks/codegraph-gate.py" exec replace
@@ -463,7 +536,7 @@ if has measure; then
     [ "$HOME" = "$(eval echo "~$(id -un)")" ] && launchctl bootout "gui/$(id -u)/com.claude-setup-kit.token-monthly" >/dev/null 2>&1
     mv "$OLD" "$OLD.bak-kit-$TS" && ok "old monthly job replaced (kept as $(short "$OLD").bak-kit-$TS)"
   fi
-  if [ "$DO_SCHED" = 0 ]; then info "token report off: its daily job is not scheduled (run it by hand: python3 ~/.claude/hooks/token-report.py)"; else
+  # Scheduled even when the report is off: the job then does nothing, and token-report.py --set month turns it back on.
   LBL=com.claude-setup-kit.token-report; PL="$LA/$LBL.plist"
   cat > "$PL.tmp" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -484,7 +557,6 @@ PLIST
       launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
       launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "token report job scheduled (daily check at 09:00; writes a report when your period ends)" || fail "launchctl bootstrap $PL"
     else info "test HOME: report job written to $PL, not loaded"; fi
-  fi
   fi
   # The weekly scorecard is its own job: it runs whatever was chosen for the token report.
   LBL=com.claude-setup-kit.setup-monitor; PL="$LA/$LBL.plist"
@@ -535,17 +607,22 @@ if has model-badge; then
     todo "Model badge: in a new chat, start a helper agent; its row shows the model it ran on."
 fi
 if has model-pilot; then
-  for p in $PILOT_OFF; do
+  # Installed first: if it fails, the other selector stays on.
+  if plugin "$dest" claude-setup-kit model-pilot; then for p in $PILOT_OFF; do
     claude plugin disable "$p" >/dev/null 2>&1 && ok "switched off $p (to go back: claude plugin enable $p, and switch Model pilot off)" || fail "could not switch off $p (run: claude plugin disable $p)"
-  done
-  plugin "$dest" claude-setup-kit model-pilot
-  if [ "$HANDOFF" != auto ] || [ "$CONFIRM_FABLE" = no ]; then
-    python3 - "$CL/settings.json" "$HANDOFF" "$CONFIRM_FABLE" "$TS" <<'PY' && ok "Model pilot: fresh-chat offer $HANDOFF, ask before Fable: ${CONFIRM_FABLE:-yes}" || fail "could not save the Model pilot choices (set them in /config, under Model pilot)"
+  done; fi
+  v=$(claude --version 2>/dev/null | awk '{print $1}')
+  [ -n "$v" ] && [ "$(printf '%s\n' 2.1.325 "$v" | sort -V | head -1)" != 2.1.325 ] &&
+    todo "Model pilot needs Claude Code 2.1.325 or newer; you have $v. Update Claude (claude update, or update the app) before it can run."
+  if true; then
+    python3 - "$CL/settings.json" "$HANDOFF" "$CONFIRM_FABLE" "$TS" "$JEV_SHARE" <<'PY' && ok "Model pilot: fresh-chat offer $HANDOFF, ask before Fable: ${CONFIRM_FABLE:-yes}" || fail "could not save the Model pilot choices (set them in /config, under Model pilot)"
 import json, os, shutil, sys
-path, handoff, fable, ts = sys.argv[1:5]
+path, handoff, fable, ts, share = sys.argv[1:6]
 d = json.load(open(path)) if os.path.exists(path) else {}
 opts = d.setdefault("pluginConfigs", {}).setdefault("model-pilot@claude-setup-kit", {}).setdefault("options", {})
-want = dict(opts)
+want = {k: v for k, v in opts.items() if k not in ("handoff", "confirmFable", "jev")}  # defaults are absent keys
+if "pilot" not in share.split():
+    want["jev"] = False  # prompts go to TypeSafe only if the user said yes
 if handoff != "auto":
     want["handoff"] = handoff
 if fable == "no":
@@ -554,7 +631,9 @@ if want != opts:
     if os.path.exists(path):
         shutil.copy2(path, f"{path}.bak-kit-{ts}")
     opts.clear(); opts.update(want)
-    json.dump(d, open(path, "w"), indent=2)
+    tmp = path + ".tmp"
+    json.dump(d, open(tmp, "w"), indent=2)
+    os.replace(tmp, path)  # atomic, like the settings merge
 PY
   fi
   todo "Model pilot: after the restart, type /pilot status in Claude Code. The row above the prompt shows each pick and what really ran; /pilot cost compares a helper agent, doing it in place and a fresh chat."
@@ -564,7 +643,18 @@ fi
 if has jev; then
   for f in jev jev-gate; do copy_file "$KIT/files/bin/$f" "$BIN/$f" exec replace; done
   for f in jev_lib.py jev-hooks.py typesafe_key.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" data replace; done
-  mkdir -p "$CL/jev"; copy_file "$KIT/files/jev/policy.json" "$CL/jev/policy.json" data keep
+  printf '%s\n' "${JEV_HOOKS:-no}" > "$CL/kit/jev-hooks"
+  # The policy is yours after the first install (thresholds, skip_paths); only sites_off is set here, from your answers.
+  mkdir -p "$CL/jev"; [ -f "$CL/jev/policy.json" ] || copy_file "$KIT/files/jev/policy.json" "$CL/jev/policy.json" data keep
+  # Parts the user did not agree to: listed in the policy, so jev_lib never sends for them.
+  python3 - "$CL/jev/policy.json" "$KIT/files/jev/policy.json" "$JEV_SHARE" <<'PY' && ok "Jev may send for: ${JEV_SHARE:- nothing}" || fail "could not record the Jev choices in ~/.claude/jev/policy.json"
+import json, os, sys
+path, default, share = sys.argv[1], sys.argv[2], sys.argv[3].split()
+d = json.load(open(path)) if os.path.exists(path) else json.load(open(default))
+d["sites_off"] = [s for s, w in (("house-rules-recall", "recall"), ("house-rules-mine", "mine")) if w not in share]
+os.makedirs(os.path.dirname(path), exist_ok=True)
+json.dump(d, open(path + ".tmp", "w"), indent=2); os.replace(path + ".tmp", path)
+PY
   todo "Jev: store your TypeSafe key in the macOS Keychain: security add-generic-password -s typesafe-api-key -a \"\$USER\" -w   (it prompts for the key; nothing lands in a file)."
 fi
 if has mjudge; then
@@ -589,7 +679,8 @@ fi
 # ---------------------------------------------------------------- settings.json (merge, never overwrite)
 if [ "$DO_SETTINGS" = 1 ]; then
   say ""; say "Merging hooks into ~/.claude/settings.json (backup written first if anything changes):"
-  python3 "$KIT/lib/merge_settings.py" "$CL/settings.json" "$KIT/lib/hooks.json" $SELECTED || fail "settings merge"
+  MERGE=$SELECTED; [ "$JEV_HOOKS" = yes ] || MERGE=$(printf '%s' "$SELECTED" | sed 's/ jev / /')
+  python3 "$KIT/lib/merge_settings.py" "$CL/settings.json" "$KIT/lib/hooks.json" $MERGE || fail "settings merge"
 else todo "Hooks were not added (you said no): re-run ./install.sh and say yes to activate RTK, safe delete, auto indexes and the routing card."; fi
 for id in rtk codegraph graphify safety jev mjudge; do
   has $id || continue

@@ -27,7 +27,7 @@ r=$(git rev-parse --show-toplevel 2>/dev/null) || {
   [ -n "$r" ] || exit 0
   s="$HOME/.claude/cache/index-builds/$(printf %s "$r" | tr / _).nogit"; mkdir -p "${s%/*}"
   [ -n "$(find "$s" -mmin -10 2>/dev/null)" ] && exit 0
-  touch "$s"; ( cd "$r" && timeout 600 "$CG" sync "$r" ) >> "$s.log" 2>&1 </dev/null &
+  touch "$s"; ( cd "$r" && "$TO" 600 "$CG" sync "$r" ) >> "$s.log" 2>&1 </dev/null &
   exit 0
 }
 [ "$r" = "$HOME" ] && exit 0                                # never index the whole home dir

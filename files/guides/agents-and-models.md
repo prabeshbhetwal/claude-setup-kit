@@ -21,7 +21,7 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
 2. **T below current (route down):**
    - Short answer, no/one tool call → answer here (delegation start-up cost > saving).
    - Tool-heavy or multi-step (searches, bulk reads, web lookups, many commands) → helper agent on T, lean agent first (`haiku-lean`, `sonnet-lean`).
-   - Long independent job → nested session (`start_session`, cheaper `model` + `effort`, `permission_mode: "auto"`).
+   - Long independent job → nested session (`start_session`, cheaper `model` + `effort`). Ask me before starting it in `auto` permission mode: auto skips approval prompts.
 3. **T above current (route up):**
    - Bounded task → helper agent with explicit `model` (`opus`/`fable`) + `effort`. Router keeps named models.
    - Long autonomous Fable/Opus job → `/pick-model handoff` (new chat one model up). Sessions can't start above parent model.
@@ -64,4 +64,4 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
 - Pass `effort` on every Agent call; this rule = standing authorisation.
 - Independent subtasks in parallel; no mass fan-out.
 - Labelling: before every Agent call print `▶ <agent> · <model> · <effort> — <task ≤8 words>`. Keep label when relaying results.
-- Nested sessions: `permission_mode: "auto"`, explicit `model` + `effort`.
+- Nested sessions: explicit `model` + `effort`; `permission_mode: "auto"` only after I say yes for that session.

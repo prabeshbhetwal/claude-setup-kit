@@ -31,6 +31,7 @@ DEFAULTS = {
     "codegraph_min": 0.40,  # skip CodeGraph injection when the prompt is not about code
     "shadow_flag": 0.70,  # shadow sites: p at or above this counts as a flag in the weekly report
     "skip_paths": [],     # cwd prefixes never sent to TypeSafe (client/confidential repos)
+    "sites_off": [],      # sites the user did not agree to send (install.sh asks): house-rules-recall, house-rules-mine
 }
 
 _loader = importlib.machinery.SourceFileLoader("jev_cli", str(HOME / ".local/bin/jev"))
@@ -45,9 +46,9 @@ def policy() -> dict:
         return dict(DEFAULTS)
 
 
-def _allowed(pol: dict, cwd: str) -> bool:
+def _allowed(pol: dict, cwd: str, site: str = "") -> bool:
     cwd = os.path.realpath(cwd or os.getcwd())
-    return pol["enabled"] and not any(cwd.startswith(os.path.realpath(os.path.expanduser(p)))
+    return pol["enabled"] and site not in pol.get("sites_off", []) and not any(cwd.startswith(os.path.realpath(os.path.expanduser(p)))
                                       for p in pol["skip_paths"])
 
 
@@ -66,6 +67,8 @@ def log(site: str, question: str, item: str, p: float, kept: bool, **extra) -> N
         DIR.mkdir(parents=True, exist_ok=True)
         rec = {"ts": int(time.time()), "site": site, "q": question[:120], "p": round(p, 3), "kept": kept,
                "id": hashlib.sha1(item.encode()).hexdigest()[:12], "item": item[:240], **extra}
+        if LOG.exists() and LOG.stat().st_size > 5_000_000:  # bounded: it keeps previews of commands and emails
+            LOG.replace(DIR / "decisions.jsonl.1")
         with LOG.open("a") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError:
@@ -77,7 +80,7 @@ def noul(site: str, question: str, items: list[str], context: str = "", cwd: str
     pol = policy()
     if not items:
         return None
-    if not _allowed(pol, cwd):
+    if not _allowed(pol, cwd, site):
         return _failopen(site, "disabled by policy or skip_paths", cwd)
     if _jev.SECRET.search("\n".join(items) + context):
         return _failopen(site, "credential-looking input not sent", cwd)

@@ -1,6 +1,6 @@
 {
   "name": "model-pilot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Picks the cheapest Claude model and effort that will do each prompt reliably, shows what actually ran, and logs an estimated saving. Claude Code on macOS.",
   "license": "MIT",
   "author": {

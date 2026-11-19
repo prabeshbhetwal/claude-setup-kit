@@ -16,7 +16,7 @@ export type Steer = {
 }
 
 /** Words that report a failed check after a turn that tried at low effort. */
-export const FAILED_CHECK = /\b(fail(?:s|ed|ing|ure)?|error|broken|still (?:not|wrong|fails?)|(?:does|did)n'?t work|not working|wrong)\b/i
+export const FAILED_CHECK = /\b(fail(?:s|ed|ing|ure)?|(?:an?|the|same|still an?) error|errors? (?:again|still)|broken|still (?:not|wrong|fails?)|(?:does|did)n'?t work|not working|(?:is|was|it's|still) wrong)\b/i
 
 /**
  * - After a checkable turn at low effort, a report that the check failed re-runs at high.

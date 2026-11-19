@@ -70,6 +70,11 @@ test('rules: short lookups are haiku', async () => {
   }
 })
 
+test('rules: an action asked as a question is work; ordinary words are not hard reasoning', async () => {
+  for (const p of ['can you delete the old branches?', 'could you update the readme?', 'please fix the login bug']) expect(rulesVerdict(input(p)).tier).toBe('sonnet')
+  for (const p of ['update my profile page', 'scale the image to 50%', 'design a logo']) expect(rulesVerdict(input(p)).tier).not.toBe('opus')
+})
+
 test('rules: the unknown defaults up to sonnet, whole-system jobs are fable', async () => {
   expect(rulesVerdict(input('the quarterly numbers for the board, with my comments on each division and the plan')).tier).toBe('sonnet')
   expect(rulesVerdict(input('audit the entire codebase and redesign it')).tier).toBe('fable')

@@ -76,6 +76,8 @@ if has safety; then
   exe "$BIN/trashmv" "trashmv"; selftest python3 "$BIN/trashmv" --test
   selftest python3 "$CL/hooks/block-rm.py" --test
   hook_on PreToolUse "block-rm.py" "rm blocker"
+  hook_on SessionStart "apply-hook-timeouts.py" "plugin hook time limits (15 s)"
+  command -v trashmv >/dev/null 2>&1 && pass "trashmv on your PATH" || warn "trashmv is not on your PATH, so Claude cannot run it: add ~/.local/bin to PATH in your shell profile"
 fi
 if has guard; then
   n=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(r in d.get("permissions",{}).get("deny",[]) for r in ("Read(.env)","Bash(git reset --hard *)","Bash(git push --force *)")))' "$CL/settings.json" 2>/dev/null)
@@ -89,6 +91,11 @@ if has verify; then
   selftest python3 "$CL/hooks/verify-done.py" selftest
   hook_on PostToolUse "verify-done.py" "lint after each edit"
   hook_on Stop "verify-done.py" "done check before finishing"
+fi
+if has session-title; then
+  selftest python3 "$CL/hooks/session-title.py" selftest
+  hook_on UserPromptSubmit "session-title.py" "session title request"
+  hook_on Stop "session-title.py" "session title check before finishing"
 fi
 if has indexes; then
   [ -f "$CL/hooks/ensure-indexes.sh" ] && pass "ensure-indexes.sh" || fail "ensure-indexes.sh missing"
@@ -112,6 +119,9 @@ if has measure; then
   elif [ ! -f "$PL" ]; then fail "token report not scheduled ($PL missing): re-run install.sh"
   elif launchctl print "gui/$(id -u)/com.claude-setup-kit.token-report" >/dev/null 2>&1; then pass "token report: $per (daily check, 09:00)"
   else warn "token report job exists but is not loaded: launchctl bootstrap gui/$(id -u) $PL"; fi
+  PM="$HOME/Library/LaunchAgents/com.claude-setup-kit.setup-monitor.plist"
+  [ -f "$PM" ] && pass "weekly scorecard job (Mondays 08:15)" || fail "weekly scorecard not scheduled ($PM missing): re-run install.sh"
+  hook_on UserPromptSubmit "house-rules-recall.py" "house rules recall"
 fi
 if has rules; then
   [ -f "$CL/CLAUDE.md" ] && pass "~/.claude/CLAUDE.md present" || fail "~/.claude/CLAUDE.md missing"
@@ -140,6 +150,8 @@ fi
 
 if has model-pilot; then
   plugin_on "model-pilot@claude-setup-kit"
+  v=$(claude --version 2>/dev/null | awk '{print $1}')
+  if [ -n "$v" ] && [ "$(printf '%s\n' 2.1.325 "$v" | sort -V | head -1)" != 2.1.325 ]; then fail "Model pilot needs Claude Code 2.1.325 or newer; you have $v (claude update)"; fi
   [ -f "$CL/local-marketplaces/claude-setup-kit/model-pilot/hooks/register.tsx" ] && pass "model pilot files" || fail "model pilot files missing (re-run ./install.sh)"
   other=$(python3 -c 'import json,sys
 try: print(" ".join(k for k, v in json.load(open(sys.argv[1])).get("enabledPlugins", {}).items() if v is True and k.endswith("@claude-model-selector")))
@@ -150,7 +162,8 @@ fi
 # judge
 if has jev; then
   exe "$BIN/jev" "jev"; exe "$BIN/jev-gate" "jev-gate"
-  hook_on PostToolUse "jev-hooks.py" "Jev tool-output triage (shadow)"
+  if [ "$(cat "$CL/kit/jev-hooks" 2>/dev/null)" = yes ]; then hook_on PostToolUse "jev-hooks.py" "Jev background hooks (you said yes)"
+  else pass "Jev background hooks off (your choice; ./install.sh --only jev --jev-hooks yes adds them)"; fi
   key=$(python3 -c "import sys;sys.path.insert(0,'$CL/hooks');from typesafe_key import get_key;print('y' if get_key() else '')" 2>/dev/null)
   [ "$key" = y ] && pass "TypeSafe key found" || warn "no TypeSafe key yet (Keychain item typesafe-api-key or TYPESAFE_API_KEY); jev exits 2 until then"
 fi
@@ -188,4 +201,5 @@ done < <(find "$CL" -maxdepth 2 -name '*.kit-new' 2>/dev/null)
 
 echo ""
 echo "doctor: $nfail fail, $nwarn warn"
+[ $nfail = 0 ] || echo "Removed a tool by hand? Delete its line from ~/.claude/kit/installed so the doctor stops checking it."
 [ $nfail = 0 ]

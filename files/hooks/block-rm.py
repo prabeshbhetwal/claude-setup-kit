@@ -3,16 +3,19 @@
 
 Enforces the CLAUDE.md rule "never permanently delete — move to _trash/".
 Run `python3 block-rm.py --test` for the self-check.
-ponytail: regex guard, not a shell parser — misses `find -delete`, `unlink`, `git clean -f`
-and deletes inside scripts; the CLAUDE.md rule covers those. Extend RM if one shows up.
+Also caught: rm behind sudo, command, env, nohup, exec, time, nice, xargs and `bash -c "..."`, and paths
+that only look temporary (/tmp/../etc/x is checked as /etc/x).
+Not caught (a regex guard, not a shell parser): `find -delete`, `unlink`, `rsync --delete`, `git clean -f`
+and deletes inside scripts; the CLAUDE.md rule and the deny rules cover some of those.
 """
 import json
+import os
 import re
 import shlex
 import sys
 
 TEMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
-RM = re.compile(r"(?:^|[;&|(\n])\s*(?:(?:sudo|command|env|nohup|exec)\s+|xargs\s+(?:-\S+\s+)*)*\\?(?:/usr)?(?:/bin/)?(rm|rmdir)\b")
+RM = re.compile(r"(?:^|[;&|(\n\"'])\s*(?:(?:sudo|command|env|nohup|exec|time|nice(?:\s+-n\s*-?\d+|\s+-\d+)?)\s+|xargs\s+(?:-\S+\s+)*)*\\?(?:/usr)?(?:/bin/)?(rm|rmdir)\b")
 REASON = ("Blocked by your rule: never permanently delete. Move it instead: "
           "trashmv <path>... (files into ~/_trash/<project>/<date>/<original sub-folders>, outside iCloud, logged in moves.tsv). "
           "Temp folders (/tmp, /private/tmp, /var/folders) are exempt.")
@@ -30,9 +33,11 @@ def targets(segment):
 
 def blocked(command):
     for m in RM.finditer(command):
-        segment = re.split(r"[;&|)\n]", command[m.start(1):], maxsplit=1)[0]
+        quote = command[m.start(1) - 1] if m.start(1) and command[m.start(1) - 1] in "\"'" else ""
+        segment = re.split(r"[;&|)\n" + quote + "]", command[m.start(1):], maxsplit=1)[0]  # bash -c "rm x": stop at the quote
         paths = targets(segment)
-        if not paths or not all(p.startswith(TEMP_PREFIXES) for p in paths):
+        # normpath first: /tmp/../etc/x is /etc/x, not a temp path
+        if not paths or not all(os.path.normpath(p).startswith(TEMP_PREFIXES) for p in paths):
             return True
     return False
 
@@ -68,6 +73,12 @@ def test():
     assert blocked("env rm x && nohup rm y")
     assert not blocked("git rm --cached x")           # git rm: recoverable from git
     assert not blocked("npm run rm-cache")
+    assert blocked("rm -rf /tmp/../etc/x/proj")     # only looks temporary
+    assert blocked("time rm x") and blocked("nice rm x") and blocked("nice -n 5 rm x")
+    assert blocked('bash -c "rm x"') and blocked("sh -c 'rm -rf build'")
+    assert not blocked('bash -c "rm -rf /tmp/claude-501/x"')
+    assert not blocked("rm -rf /tmp/foo/")
+    assert blocked("rm -rf /tmp")                     # the temp folder itself
     print("block-rm self-check: ok")
 
 

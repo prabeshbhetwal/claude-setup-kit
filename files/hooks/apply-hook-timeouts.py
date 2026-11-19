@@ -12,6 +12,7 @@ back, so a SessionStart hook re-runs this. The first session after an update sti
 import glob
 import json
 import os
+import shutil
 import sys
 import tempfile
 
@@ -59,6 +60,8 @@ def patch_file(path, check=False):
                     n += 1
                     h["timeout"] = FLOOR
     if n and not check:
+        if not os.path.exists(path + ".bak-kit"):  # the plugin's own file, kept once before the first change
+            shutil.copy2(path, path + ".bak-kit")
         tmp = path + ".tmp"
         with open(tmp, "w") as f:
             json.dump(d, f, indent=2)

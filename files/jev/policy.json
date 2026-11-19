@@ -5,5 +5,9 @@
   "save_min": 0.25,
   "skip_paths": [],
   "codegraph_min": 0.4,
-  "shadow_flag": 0.7
+  "shadow_flag": 0.7,
+  "sites_off": [
+    "house-rules-recall",
+    "house-rules-mine"
+  ]
 }

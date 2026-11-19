@@ -219,13 +219,17 @@ test('where a job is cheapest: small jobs in place, big tool-heavy jobs in a lea
 test('the tip speaks only when a lean sub-agent is clearly cheaper', async () => {
   const chat = { contextTokens: 120_000, now: HOUR, cacheTtlMs: HOUR, warm: { opus: { at: HOUR - 1000, tokens: 120_000 } } }
   expect(placeTip('haiku', 'opus', chat)).toBe(null)
-  expect(placeTip('sonnet', 'opus', chat)?.includes('lean sub-agent')).toBe(true)
+  const tip = placeTip('sonnet', 'opus', chat)
+  expect(tip?.startsWith('lean sub-agent ~$')).toBe(true)
+  expect(`Tip: ${tip}`.length < 60).toBe(true)
   expect(placeTip('sonnet', 'sonnet', { ...chat, contextTokens: 3_000, warm: {} })).toBe(null)
 })
 
 test('a sub-agent spawned for a small job is noted, a fitting one is not', async () => {
   const chat = { contextTokens: 40_000, now: HOUR, cacheTtlMs: HOUR, warm: { sonnet: { at: HOUR - 1000, tokens: 40_000 } } }
-  expect(spawnNote('general-purpose', 'sonnet', 'sonnet', chat)?.includes('72k-token start-up')).toBe(true)
+  const note = spawnNote('general-purpose', 'sonnet', 'sonnet', chat)
+  expect(note?.startsWith('general-purpose cost ~$')).toBe(true)
+  expect(`Tip: ${note}`.length < 60).toBe(true) // the app clips long lines instead of wrapping them
   expect(spawnNote('sonnet-lean', 'sonnet', 'opus', { ...chat, contextTokens: 200_000, warm: { opus: { at: HOUR - 1000, tokens: 200_000 } } })).toBe(null)
 })
 

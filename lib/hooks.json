@@ -172,7 +172,24 @@
       "Bash(git push --force *)",
       "Bash(git push * --force)",
       "Bash(git push -f *)",
-      "Bash(git push * -f)"
+      "Bash(git push * -f)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.netrc)",
+      "Bash(git push * --force *)",
+      "Bash(git push * -f *)",
+      "Bash(git push * +*)",
+      "Bash(git -C * reset --hard*)",
+      "Bash(git -C * push --force*)",
+      "Bash(git -C * push -f*)",
+      "Bash(git checkout -- .)",
+      "Bash(git restore .)",
+      "Bash(git stash clear)",
+      "Bash(security find-generic-password *)",
+      "Bash(security find-internet-password *)"
     ]
   },
   "sandbox": {
@@ -198,6 +215,24 @@
         "command": "python3 \"$HOME/.claude/hooks/verify-done.py\" stop",
         "timeout": 660,
         "match": "verify-done.py\" stop"
+      }
+    ]
+  },
+  "session-title": {
+    "hooks": [
+      {
+        "event": "UserPromptSubmit",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/session-title.py\" prompt",
+        "timeout": 15,
+        "match": "session-title.py\" prompt"
+      },
+      {
+        "event": "Stop",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/session-title.py\" stop",
+        "timeout": 15,
+        "match": "session-title.py\" stop"
       }
     ]
   }

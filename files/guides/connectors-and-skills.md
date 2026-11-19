@@ -16,6 +16,6 @@ Read for: Gmail, Calendar, Drive, Notion or similar connectors; "turn this into 
 
 ## Connectors on demand
 - Keep only the connectors you use daily switched on in the Code tab; every connector's tool list costs fixed context in each session.
-- Task needs an off connector → switch it on for this session, finish, switch it off again.
-- Ask me only if it needs a sign-in (that is mine) or the tool call is refused.
+- Task needs an off connector → ask me first (connectors reach accounts such as mail and files); once I say yes, switch it on for this session, finish, switch it off again.
+- Sign-ins are always mine.
 
