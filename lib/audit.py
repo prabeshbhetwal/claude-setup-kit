@@ -223,6 +223,17 @@ tipsrc = open(os.path.join(KIT, "mods/model-pilot/hooks/policy.ts")).read()
 if "start-up is small next to re-reading" in tipsrc:
     fail("regression: the long Model pilot tip text is back (the app clips it)")
 
+home = H("h-uninstall"); os.makedirs(os.path.join(home, ".claude"))
+open(os.path.join(home, ".claude/settings.json"), "w").write('{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}}')
+rc, out = sh(["bash", "install.sh", "--only", "session-title", "--yes"], home)
+if "This is what would change in settings.json" not in out:
+    fail("regression: install must show the settings.json diff before writing")
+rc, out = sh(["bash", "install.sh", "--uninstall", "session-title"], home)
+cfg = json.load(open(os.path.join(home, ".claude/settings.json")))
+if cfg != {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}} or os.path.exists(os.path.join(home, ".claude/hooks/session-title.py")):
+    fail("regression: uninstall must remove only the kit's entries and the script, and keep the user's hooks")
+if sh(["bash", "install.sh", "--uninstall", "session-title"], home)[1].count("removed hook"):
+    fail("regression: a second uninstall must change nothing")
 shutil.rmtree(T, ignore_errors=True)  # only the throwaway folder this run made
 print(f"\n{len(bad)} failing check(s)")
 sys.exit(1 if bad else 0)

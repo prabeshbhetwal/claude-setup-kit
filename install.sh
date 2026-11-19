@@ -8,6 +8,7 @@
 #   ./install.sh --list               print the catalogue and exit
 # Other options: --skip id,id  --caveman-mode lite|full|ultra  --handoff auto|250k|500k|750k|never  --confirm-fable yes|no
 #   --jev-share pilot,recall,mine|none   which kit parts may send text to TypeSafe through Jev (default none)
+#   --uninstall session-title   take that tool out again (its script, settings and hook entries; backs settings.json up first)
 #   --jev-hooks yes|no   add Jev's background measuring hooks (they send tool output to TypeSafe; default no)
 #   --title-recheck N  --title-spelling au|us|none   session titles: prompts between checks (default 5), spelling (default au)
 #   --report week|fortnight|month|off   how often the token report runs (default month)
@@ -26,7 +27,7 @@ TIERS_ALL="core guard memory routing judge deliberation extras"
 SELECTED=" "
 TODO=""
 FAILED=""
-MODE=ask; TIERS=""; ONLY=""; SKIP=""; TITLE_RECHECK=""; TITLE_SPELLING=""; JEV_HOOKS=""; JEV_SHARE=""; HANDOFF=""; CONFIRM_FABLE=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
+MODE=ask; TIERS=""; ONLY=""; SKIP=""; TITLE_RECHECK=""; TITLE_SPELLING=""; JEV_HOOKS=""; JEV_SHARE=""; UNINSTALL=""; HANDOFF=""; CONFIRM_FABLE=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
 TTY=0; { : </dev/tty; } 2>/dev/null && TTY=1   # a keyboard to answer questions on
 
 say()  { printf '%s\n' "$*"; }
@@ -54,6 +55,7 @@ while [ $# -gt 0 ]; do
     --tiers) val "$1" "${2:-}"; TIERS=$(csv "$2"); MODE=yes; shift ;;
     --only) val "$1" "${2:-}"; ONLY=$(csv "$2"); shift ;;
     --skip) val "$1" "${2:-}"; SKIP=$(csv "$2"); shift ;;
+    --uninstall) val "$1" "${2:-}"; UNINSTALL=$2; shift ;;
     --jev-share) val "$1" "${2:-}"; JEV_SHARE=$(csv "$2"); [ "$JEV_SHARE" = none ] && JEV_SHARE=" "; shift ;;
     --jev-hooks) val "$1" "${2:-}"; JEV_HOOKS=$2; shift ;;
     --title-recheck) val "$1" "${2:-}"; TITLE_RECHECK=$2; shift ;;
@@ -74,6 +76,21 @@ done
 if [ "$(uname -s)" != Darwin ] && [ "${KIT_ALLOW_NON_MAC:-}" != 1 ]; then
   say "This kit is tested on macOS only (it uses the Keychain, osascript, BSD stat and Homebrew)."
   say "Set KIT_ALLOW_NON_MAC=1 to try anyway."; exit 1
+fi
+
+# Uninstall: the one optional tool with its own undo. Nothing is asked; settings.json is backed up first.
+if [ -n "$UNINSTALL" ]; then
+  [ "$UNINSTALL" = session-title ] || { say "--uninstall works for: session-title (undo for the others: see the README)"; exit 2; }
+  xcode-select -p >/dev/null 2>&1 || { say "Needs Apple's Command Line Tools (xcode-select --install) to edit settings.json."; exit 1; }
+  say "Removing Dynamic session titles. Changes to ~/.claude/settings.json (backed up first):"
+  python3 "$KIT/lib/merge_settings.py" --remove "$CL/settings.json" "$KIT/lib/hooks.json" session-title || { say "Could not edit settings.json; nothing else was removed."; exit 1; }
+  for f in "$CL/hooks/session-title.py" "$CL/kit/session-title.json"; do
+    [ -e "$f" ] || continue
+    if command -v trashmv >/dev/null 2>&1; then trashmv "$f" >/dev/null 2>&1 || mv "$f" "$f.removed"; else mv "$f" "$f.removed"; fi  # kept recoverable, never deleted
+  done
+  if [ -f "$CL/kit/installed" ]; then grep -vx session-title "$CL/kit/installed" > "$CL/kit/installed.tmp"; mv "$CL/kit/installed.tmp" "$CL/kit/installed"; fi
+  say "Done. The script and its settings file were moved aside (trashmv, or renamed .removed); notes in ~/.claude/cache/session-title are harmless. Running this again changes nothing."
+  exit 0
 fi
 
 # Questions come from the terminal even when stdin is a pipe; no terminal -> defaults.
@@ -218,6 +235,12 @@ for id in rtk safety indexes routing cognee jev measure guard sandbox verify ses
   say "Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command)."
   say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules, done checks and session titles only work through them. They are added to"
   say "~/.claude/settings.json: backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised. Cognee's local-only setting (COGNEE_BACKEND=local) goes in only through this step: say no and Cognee uses its own default backend, which this kit has not checked, so add that env key yourself."
+  if xcode-select -p >/dev/null 2>&1; then  # a preview, before anything is asked or written
+    PREVIEW=$(python3 "$KIT/lib/merge_settings.py" --dry-run "$CL/settings.json" "$KIT/lib/hooks.json" $(printf '%s' "$SELECTED" | sed 's/ jev / /') 2>/dev/null)
+    say ""
+    if [ -n "$PREVIEW" ]; then say "This is what would change in settings.json (Jev's background hooks are asked about separately):"; printf '%s\n' "$PREVIEW"
+    else say "settings.json already has everything: nothing would change."; fi
+  fi
   ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
   break
 done
