@@ -28,34 +28,37 @@ export type JudgeOptions = {
   model: string
   /** The judges to try, in order; the rules always stand behind them. */
   chain: readonly ('jev' | 'haiku')[]
+  /** Jev's off switch and failure count; /pilot eval passes its own so test runs never turn Jev off live. */
+  jev?: JevState
 }
 
+export type JevState = { isOff: boolean; failures: number }
+
 // Jev is optional. Without its CLI or a key it is left alone for the session, silently.
-let isJevOff = false
-let jevFailures = 0
+const live: JevState = { isOff: false, failures: 0 }
 
 /** Asks Jev through the kit's `jev` CLI, which holds the key; undefined when it cannot answer. */
-async function askJev($: EngineInterface, input: JudgeInput, timeoutMs: number): Promise<Verdict | undefined> {
-  if (isJevOff) return undefined
+async function askJev($: EngineInterface, input: JudgeInput, timeoutMs: number, st: JevState): Promise<Verdict | undefined> {
+  if (st.isOff) return undefined
   try {
     const bin = `${(await $.env.get('HOME')) ?? ''}/.local/bin/jev`
     if (!(await $.fs.exists(bin))) {
-      isJevOff = true
+      st.isOff = true
       return undefined
     }
     const r = await $.process.run([bin, 'raw'], { stdin: JSON.stringify(jevBody(input)), timeoutMs })
     const verdict = r.exitCode === 0 ? parseJevReply(r.stdout) : undefined
     if (verdict) {
-      jevFailures = 0
+      st.failures = 0
       return verdict
     }
-    if (/no TypeSafe key/.test(r.stderr)) isJevOff = true
+    if (/no TypeSafe key/.test(r.stderr)) st.isOff = true
     if (/credential/.test(r.stderr)) return undefined // its own guard refused the text: not a failure of Jev
   } catch {
     // timed out or could not start
   }
-  jevFailures += 1
-  if (jevFailures >= 3) isJevOff = true
+  st.failures += 1
+  if (st.failures >= 3) st.isOff = true
   return undefined
 }
 
@@ -94,15 +97,17 @@ export const HEDGE_MS = 1200
 /** The verdict, with Haiku never left on real coding (Anthropic: Haiku is not for writing code). */
 export async function judge($: EngineInterface, input: JudgeInput, o: JudgeOptions): Promise<Judged> {
   const j = await judgeOnce($, input, o)
-  return { ...j, verdict: floorCoding(j.verdict, input.prompt) }
+  j.verdict = floorCoding(j.verdict, input.prompt) // mutate, not copy: a late Haiku usage must still reach the caller's object
+  return j
 }
 
 async function judgeOnce($: EngineInterface, input: JudgeInput, o: JudgeOptions): Promise<Judged> {
   if (o.isPrivate) return { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: 0, fail: 'privacy' }
   const t0 = await $.clock.now()
   const ms = async () => (await $.clock.now()) - t0
-  const hasJev = o.chain.includes('jev') && !isJevOff
-  const jev = hasJev ? askJev($, input, Math.max(o.budgetMs, 3000)) : Promise.resolve(undefined)
+  const st = o.jev ?? live
+  const hasJev = o.chain.includes('jev') && !st.isOff
+  const jev = hasJev ? askJev($, input, Math.max(o.budgetMs, 3000), st) : Promise.resolve(undefined)
   if (hasJev) {
     const early = await Promise.race([jev, $.clock.sleep(HEDGE_MS).then(() => undefined)])
     if (early) return { verdict: early, source: 'judge', by: 'jev', ms: await ms() }
@@ -120,8 +125,13 @@ async function judgeOnce($: EngineInterface, input: JudgeInput, o: JudgeOptions)
   ])
   const won = await tagged
   // The Haiku call is paid for whether or not it won; count it once it is back.
-  const h = won?.by === 'haiku' ? await haiku : await Promise.race([haiku, Promise.resolve(undefined)])
-  if (won) return { verdict: won.verdict, source: 'judge', by: won.by, ms: await ms(), usage: h?.usage }
+  if (won?.by === 'haiku') return { verdict: won.verdict, source: 'judge', by: 'haiku', ms: await ms(), usage: (await haiku).usage }
+  if (won) {
+    // Jev won while Haiku was still out: its usage lands on this object when it returns, before the turn is costed.
+    const j: Judged = { verdict: won.verdict, source: 'judge', by: won.by, ms: await ms() }
+    void haiku.then(h => { j.usage = h.usage })
+    return j
+  }
   const out = await haiku
   return { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: await ms(), usage: out.usage, fail: out.fail || 'no answer' }
 }

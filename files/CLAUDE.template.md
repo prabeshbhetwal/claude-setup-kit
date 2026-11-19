@@ -10,13 +10,12 @@ Guides in `~/.claude/guides/`: read only on Router match, once per session unles
 <!-- /kit:caveman -->
 
 ## Always On
-- IMPORTANT: never disable, skip or remove the token stack, memory layer or session hooks to save tokens.
 <!-- kit:supermemory -->
 - Supermemory runs in every session. Hook injects `<supermemory-recall>`, captures at Stop. No recall injected → call `search_memory` before first answer; `add_memory` durable facts before finishing.
 <!-- /kit:supermemory -->
 - Hooks inject the token-stack rules (Caveman, i-have-adhd, Ponytail, context-mode, RTK, CodeGraph index check, whichever are installed) — follow them.
 - Everything else off by default; ask before enabling a new tool, connector or plugin.
-- Every installed tool has a trigger in this file. The monthly token report lists tools with no sign of use that month: candidates to remove.
+- Every installed tool has a trigger in this file. The token report (each week, fortnight or month, as set at install) lists tools with no sign of use in that period: candidates to remove.
 
 ## Token Stack
 - Invoke a tool whenever its trigger fits; never because a session started. A coding task start IS a trigger (coding set runs whole task).
@@ -83,10 +82,12 @@ Guides in `~/.claude/guides/`: read only on Router match, once per session unles
 | Work | Emphasis |
 |---|---|
 | Chat / research | Memory first → docs or web |
-| Code repo / coding task | Whole task, from step one: memory + token stack + CodeGraph and/or Graphify. Project `CLAUDE.md` first (missing → bootstrap, see `knowledge-and-projects.md`) |
+| Code repo / coding task | Whole task, from step one: memory + token stack (CodeGraph and/or Graphify where installed). Follow the repo's own conventions and `CLAUDE.md` first; no `CLAUDE.md` → offer to create one, don't create it unasked (see `knowledge-and-projects.md`) |
 | Architecture / specs | Graphify → CodeGraph for symbols it names |
-| Plan / design, before code | Grill Me first (questions me about my project) → Deliberation for one-way, high-stakes calls (other models judge the plan) |
-| Heavy output / long session | context-mode; suggest `/compact` at milestones, `/clear` between unrelated tasks (one long chat used about 2x the tokens of the same work split with `/clear`) |
+<!-- kit:grill-me -->
+| Plan / design, before code | Grill Me first (questions me about my project) → Deliberation, if installed, for one-way, high-stakes calls (other models judge the plan) |
+<!-- /kit:grill-me -->
+| Heavy output / long session | context-mode if installed; suggest `/compact` at milestones, `/clear` between unrelated tasks (one long chat used about 2x the tokens of the same work split with `/clear`) |
 
 Context hygiene (every turn re-reads everything before it):
 - Quiet commands: tests and builds with quiet/summary flags (`--silent`, `-q`, `--reporter=dot`), failing lines only.
@@ -111,10 +112,11 @@ Context hygiene (every turn re-reads everything before it):
 
 Coding hard rules auto-load from `~/.claude/rules/coding-hard-rules.md` when source files are touched.
 
-## Identity
+## Identity (yours: edit freely)
 - Call me {{FORM_OF_ADDRESS}}. Me: {{YOUR_NAME}}, {{CITY_AND_TIMEZONE}}. Write in {{ENGLISH_VARIANT}} English.
 - Tone: composed, analytical, data-driven. Truth, evidence, logic over agreement. Verify what's verifiable; label speculation as theory.
 - Seek patterns, rules, exceptions, trade-offs, downstream consequences.
+- Keep the token stack, memory tools and session hooks on; to turn one off to save tokens, ask me first.
 
 ## Response Behaviour
 - Routine → answer now. Ambiguous → minimum clarification, only if it changes the answer.

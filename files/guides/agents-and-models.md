@@ -24,22 +24,22 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
    - Long independent job → nested session (`start_session`, cheaper `model` + `effort`). Ask me before starting it in `auto` permission mode: auto skips approval prompts.
 3. **T above current (route up):**
    - Bounded task → helper agent with explicit `model` (`opus`/`fable`) + `effort`. Router keeps named models.
-   - Long autonomous Fable/Opus job → `/pick-model handoff` (new chat one model up). Sessions can't start above parent model.
+   - Long autonomous Fable/Opus job → write a handoff and start a new chat on the higher model. Sessions can't start above parent model.
    - **Big job with many scoped parts** → this chat leads and judges; each part → Sonnet helper at medium (Anthropic's example: "Use Sonnet subagents to upgrade each package and fix its tests"). State "done" as a check first: tests pass, output shown.
 4. Bad result: fix prompt and context first (`/rewind`). Then ask which miss it was: **didn't try hard enough** (skipped a file, no tests, no double-check) → raise effort one level; **didn't know enough** (subtle bug, unfamiliar domain, architecture, ambiguity, confidently wrong with full context) → one model up at lower effort (Opus high fails → Fable medium).
 5. Never switch main model mid-chat yourself (cache loss, lost thinking) → handoff instead. If the user wants to switch here anyway: `/compact` first while the cache is warm, then switch, so the new model reads a summary.
-6. **Handoff rule:** context above ~250k, or task finished → hand off to a fresh chat (`/handoff`) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour.
+6. **Handoff rule:** context above ~250k, or task finished → hand off to a fresh chat (a written summary) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour.
 7. **Model pilot on (not shadow) replaces rules 5 and 6:** it picks this chat's model + effort per prompt and offers a fresh chat at the size the user chose (`/pilot status`). One owner per decision: don't apply the 250k rule on top of it.
 
 ## Start-up cost (measured on the author's setup, 2026-11-15; yours depends on installed plugins and MCP servers)
 | Helper | Tokens before work |
 |---|---|
 | `general-purpose` / all-tools agents (`haiku-runner`, `sonnet-worker`) | ~72k |
-| `haiku-lean` (6 tools) | ~14k |
+| `haiku-lean` / `sonnet-lean` (9 tools or fewer) | ~14k |
 | 1-tool agent (`web-fetch`) | ~3k |
 | New nested session (`start_session`) | ~120k fixed context to load (75–120k cache write) |
 → Prefer lean agents; all-tools agent only when task needs tools lean lacks. Nested session only for long independent jobs.
-- Phase 3 (2026-11-15): routing decisions Opus main 19/20 model, 16/20 effort (20/20 within one level); Haiku main 16/20, 14/20. Delegating a small 3-lookup job cost ≈ same as doing it (deduped: baseline 923k cache-read + 82k cache-write on Opus; routed 784k + 92k on Opus plus 92k + 27k on Haiku): main chat's own context dominates. Savings come from big tool-heavy helpers and from starting chats on a cheaper model (selector, prompt 1).
+- Phase 3 (2026-11-15): routing decisions Opus main 19/20 model, 16/20 effort (20/20 within one level); Haiku main 16/20, 14/20. Delegating a small 3-lookup job cost ≈ same as doing it (deduped: baseline 923k cache-read + 82k cache-write on Opus; routed 784k + 92k on Opus plus 92k + 27k on Haiku): main chat's own context dominates. Savings come from big tool-heavy helpers and from starting chats on a cheaper model (a model pick at prompt 1).
 - Measuring from transcripts: dedupe usage by `message.id` (each content-block line repeats it; raw sums overstate about 2×).
 
 ## Roster
@@ -47,21 +47,12 @@ Every task runs on cheapest model + effort that does it reliably — whatever ma
 |---|---|---|---|
 | Lean runner | `haiku-lean` | Haiku · medium | Lookups, web facts, read/search/summarise, run command and report. No edits. |
 | Lean worker | `sonnet-lean` | Sonnet · medium | Scoped edits/fixes/tests in few files. |
-| Runner | `haiku-runner` | Haiku · high | Mechanical edits needing broad tools. |
+| Runner | `haiku-runner` | Haiku · high (above the Haiku tier's medium on purpose: edits need the care) | Mechanical edits needing broad tools. |
 | Worker | `sonnet-worker` | Sonnet · high (xhigh hard) | Bounded multi-file work needing broad tools. |
-| Main driver | main session | as picked (you, or model-selector if installed) | Integration, design, final verification. |
+| Main driver | main session | as picked (you, or Model pilot if installed) | Integration, design, final verification. |
 | Deep helper | `general-purpose` + `model: opus`/`fable` | Opus/Fable · per tier | Hard bounded sub-problems from a cheaper main session. |
 | Director | `fable-director` | Fable 5.2 · high | Decompose large/multi-part work into dispatch plan. |
 | Fable executor | Agent `model: fable` or handoff to Fable chat | Fable 5.2 · high | Fable-tier jobs (see Tiers). |
 
-## Optional mods (only if installed from a Model Selector pack you obtained yourself)
-- `model-selector`: judges prompts 1–3 of a chat → model + effort; then effort only. `/pick-model auto|ask|off`, `/pick-model handoff`.
-- `model-router`: routes unnamed helpers at spawn; keeps the model named by the caller or agent file. Measured on the author's setup: no saving on a small 3-lookup job (see Start-up cost).
-- `handoff`, `cache-clock`: handoff to a new chat; cache-cold timer.
-- Not installed → ignore `/pick-model` and `/handoff`; hand off by writing a summary into a new chat.
-
-## Dispatch rules
-- Pass `effort` on every Agent call; this rule = standing authorisation.
-- Independent subtasks in parallel; no mass fan-out.
-- Labelling: before every Agent call print `▶ <agent> · <model> · <effort> — <task ≤8 words>`. Keep label when relaying results.
-- Nested sessions: explicit `model` + `effort`; `permission_mode: "auto"` only after I say yes for that session.
+## Model pilot (optional mod in this kit)
+- Picks this chat's model + effort per prompt and offers a fresh chat; `/pilot status`, `/pilot cost`. Not installed → hand off by writing a summary into a new chat.

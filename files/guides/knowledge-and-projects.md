@@ -11,7 +11,7 @@ Classify each substantial task without asking:
 | Cowork / non-code project | Global + project instructions/knowledge |
 | Mixed | All relevant local layers |
 
-- Repo without `CLAUDE.md`: before substantial work, inspect repo (CodeGraph/Graphify first), create one with only durable, evidence-based, project-specific facts, where applicable: architecture and system design; build, test, lint, package-manager and deploy commands; dev workflows; conventions; key dependencies; architectural boundaries; repo-specific file-safety rules; constraints; durable setup/environment requirements; relevant `graphify-out/` paths and navigation rules.
+- Repo without `CLAUDE.md`: before substantial work, ask me whether to create one (not every repo is mine to add files to). If yes, inspect repo (CodeGraph/Graphify where installed), create it with only durable, evidence-based, project-specific facts, where applicable: architecture and system design; build, test, lint, package-manager and deploy commands; dev workflows; conventions; key dependencies; architectural boundaries; repo-specific file-safety rules; constraints; durable setup/environment requirements; relevant `graphify-out/` paths and navigation rules.
 - Never fabricate architecture, commands, dependencies or conventions. Never copy global rules into it.
 - Existing `CLAUDE.md`: read first, keep valid content, extend only with new durable knowledge, no duplicates, no wholesale replacement unless asked.
 - Substantial non-code projects: establish/maintain project instructions (objective, scope, workflow, sources of truth, output requirements, file conventions, recurring procedures, scheduled-task behaviour, decisions, working principles, terminology).

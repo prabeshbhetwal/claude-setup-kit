@@ -1,6 +1,7 @@
 #!/bin/sh
-# SessionStart: puts the model/effort routing card in every session's context (~250 tokens, cached after turn 1).
+# SessionStart: puts the model/effort routing card in every session's context (about 1,000 tokens, cached after turn 1).
 # Full rules: ~/.claude/guides/agents-and-models.md. Edit the card here; keep it short.
+# Tool-specific lines appear only for tools listed in ~/.claude/kit/installed (written by install.sh).
 # With Model pilot on (not in shadow mode) the pilot owns this chat's model and the fresh-chat offer, so the card
 # drops its own lines for those two and keeps only the helper-agent rules: one source for each decision.
 PILOT=$(python3 -c 'import json,os,sys
@@ -10,6 +11,12 @@ k="model-pilot@claude-setup-kit"
 on=d.get("enabledPlugins",{}).get(k) is True
 shadow=((d.get("pluginConfigs",{}).get(k) or {}).get("options") or {}).get("shadow") is True
 print("1" if on and not shadow else "")' 2>/dev/null)
+has() { grep -qx "$1" "$HOME/.claude/kit/installed" 2>/dev/null; }
+STACK=""
+for t in context-mode:context-mode codegraph:CodeGraph rtk:RTK caveman:Caveman; do
+  has "${t%%:*}" && STACK="$STACK${STACK:+, }${t#*:}"
+done
+KEEP=""; [ -n "$STACK" ] && KEEP=" Token stack stays on in helpers: $STACK."
 
 cat <<'CARD'
 MODEL ROUTING ACTIVE. Before each task, pick the cheapest model + effort that does it reliably; whatever model this chat runs on.
@@ -20,17 +27,18 @@ Up (task above this chat's tier): bounded → Agent with explicit model (opus/fa
 Split (big job, many scoped parts): this chat leads and judges; each scoped part → a Sonnet helper at medium ("use Sonnet subagents to upgrade each package and fix its tests"). Define "done" as a check (tests pass, output shown) before starting.
 Every Agent call: pass model + effort; print label `▶ <agent> · <model> · <effort> — <task>`. Brief helpers with the memory facts they need (helpers don't search memory).
 CARD
-if [ -n "$PILOT" ]; then cat <<'CARD'
-Model pilot is on: it sets this chat's model + effort per prompt and offers a fresh chat at the size the user chose. Leave both to it; never `/model` yourself. Bad result → /rewind and retry. Token stack stays on in helpers: context-mode, CodeGraph, RTK, Caveman.
-CARD
-else cat <<'CARD'
-Never switch this chat's model mid-chat (the new model re-reads the whole chat at the cache-write price); bad result → /rewind, raise effort one level, then one model up at lower effort. Token stack stays on in helpers: context-mode, CodeGraph, RTK, Caveman.
-Hand off by tokens, not turns: move when turns left × (context − 130k) × 0.1 > 162k (≈14 turns at 250k, ≈5 at 430k; under ~150k stay), always before ~900k, or task finished → hand off to a fresh chat (written summary, or `/handoff` if that mod is installed) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour. If the user insists on switching here: suggest `/compact` first (cache still warm), then switch, so the new model reads a summary, not the whole chat.
+if [ -n "$PILOT" ]; then
+echo "Model pilot is on: it sets this chat's model + effort per prompt and offers a fresh chat at the size the user chose. Leave both to it; never use /model yourself. Bad result → /rewind and retry.$KEEP"
+else
+echo "Never switch this chat's model mid-chat (the new model re-reads the whole chat at the cache-write price); bad result → /rewind, raise effort one level, then one model up at lower effort.$KEEP"
+cat <<'CARD'
+Hand off by tokens, not turns: move when turns left × (context − 130k) × 0.1 > 162k (≈14 turns at 250k, ≈5 at 430k; under ~150k stay), always before ~900k, or task finished → hand off to a fresh chat (a written summary) instead of continuing; never `/model` mid-chat (it discards the cache); hand off before leaving a chat idle over an hour. If the user insists on switching here: suggest `/compact` first (cache still warm), then switch, so the new model reads a summary, not the whole chat.
 CARD
 fi
 cat <<'CARD'
 Context hygiene: long artefacts (spec, plan, report, draft >~40 lines) → write to a file; chat shows a ≤10-line summary + path; amend in the file, never re-paste; re-read only the changed section. Helpers hand back conclusions + paths, not dumps.
-Screens: text first, pixels last. Web → read_page / get_page_text / find (Playwright: browser_snapshot); apps → app_ax_find; screenshot only to judge looks, at scale 0.5 or zoom on a region; many images to judge → mjudge, if installed (no Claude tokens). Text the user wants to show → ask them to paste it or give the path.
-Code questions in a repo with .codegraph/ → codegraph_explore before Read/Grep ("where is / who calls / what breaks"); Read only files you will edit.
+Screens: text first, pixels last. Web → read_page / get_page_text / find (Playwright: browser_snapshot); apps → app_ax_find; screenshot only to judge looks, at scale 0.5 or zoom on a region. Text the user wants to show → ask them to paste it or give the path.
 CARD
+has mjudge && echo "Many images to judge → mjudge (no Claude tokens)."
+has codegraph && echo "Code questions in a repo with .codegraph/ → codegraph_explore before Read/Grep (\"where is / who calls / what breaks\"); Read only files you will edit."
 echo "Details: read ~/.claude/guides/agents-and-models.md when delegating."

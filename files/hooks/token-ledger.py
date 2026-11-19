@@ -76,13 +76,23 @@ def ctx_saved(session, start, end, home=None):
     return n
 
 
+def tail(path, size):
+    """The last `size` bytes of a file as lines, without a cut first line (whole file when it is smaller)."""
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        cut = f.tell() > size
+        f.seek(max(0, f.tell() - size))
+        lines = f.read().decode("utf-8", "replace").splitlines()
+    return lines[1:] if cut else lines
+
+
 def pilot_saved(session, start, end, path=None):
     """Model pilot's estimated saving (US dollars) for the session's turns that ended in the window. None without its log."""
     path = path or os.path.expanduser("~/.claude/mods-logs/model-pilot.jsonl")
     if not os.path.exists(path):
         return None
     usd = 0.0
-    for line in open(path, errors="replace"):
+    for line in tail(path, 1 << 20):  # this turn's lines are at the end; never re-read the whole log
         if session not in line:
             continue
         try:
@@ -107,13 +117,19 @@ def typed(o):
 
 def turn(transcript, now):
     """(start, requests, context, output, by-family, bash commands) for the last typed prompt up to now."""
-    rows = []
-    for line in open(transcript, errors="ignore"):
-        try:
-            rows.append(json.loads(line))
-        except ValueError:
-            continue
-    i = max((k for k, o in enumerate(rows) if typed(o)), default=None)
+    # Read from the end, doubling the window until it holds the last typed prompt: a long chat is not re-read each turn.
+    size, total = 1 << 20, os.path.getsize(transcript)
+    while True:
+        rows = []
+        for line in tail(transcript, size):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+        i = max((k for k, o in enumerate(rows) if typed(o)), default=None)
+        if i is not None or size >= total:
+            break
+        size *= 2
     if i is None:
         return None
     start = when(rows[i]["timestamp"])
@@ -168,6 +184,11 @@ def record(session, transcript, now=None, home=None, ledger=LEDGER, rtk=None, pi
 
 
 def selftest():
+    import tempfile as _t
+    with _t.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write("aaaa\nbb\ncc\n")
+    assert tail(f.name, 5) == ["cc"] and tail(f.name, 99) == ["aaaa", "bb", "cc"], tail(f.name, 5)
+    os.remove(f.name)
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         tr = os.path.join(d, "s.jsonl")

@@ -2,6 +2,7 @@
 import { placeCosts, STARTUP, TIERS } from './policy'
 import type { Place, Tier, Warm } from './policy'
 import type { PilotFlags, PilotView } from '../types'
+import { PRICES_AS_OF } from './prices'
 
 export const HELP = 'Usage: /pilot on | off | auto | status | cost. "auto" hands a model or effort you picked in the menu back to the pilot.'
 
@@ -27,6 +28,7 @@ export function statusText(a: StatusInput): string {
       : 'No turn judged yet.',
     ...(v?.tip ? [`Tip: ${v.tip}.`] : []),
     `Fresh-chat offer: ${offer}.`,
+    `Cost figures are estimates from list prices as of ${PRICES_AS_OF}.`,
     'Log: ~/.claude/mods-logs/model-pilot.jsonl',
     HELP,
   ].join('\n')

@@ -4,6 +4,8 @@ paths:
 ---
 # Coding Hard Rules
 
+Defaults for my own code. In a repo with its own conventions (`CLAUDE.md`, lint config, an existing file layout), follow the repo; these apply where it says nothing.
+
 - Source files ≤300 lines; near 250, extract helpers, types and sub-components into sibling modules or domain folders.
 - Keep domain models, data access, external integrations and orchestrators in separate files. Never duplicate logic; extract shared routines into common utilities.
 - Small, well-typed interfaces; no barrel exports (`index.ts`); explicit, local imports.

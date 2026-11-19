@@ -53,10 +53,11 @@ export async function runEval($: EngineInterface, path: string, model: string): 
     .map(l => JSON.parse(l) as Case)
   const rows: Outcome[] = []
   const queue = [...cases]
+  const jev = { isOff: false, failures: 0 } // its own counter: eval failures never switch Jev off for live turns
   const worker = async (): Promise<void> => {
     for (let c = queue.shift(); c; c = queue.shift()) {
       const input: JudgeInput = { prompt: c.prompt, recent: c.recent ?? '', contextTokens: c.context_tokens ?? 30_000, currentTier: 'sonnet', kind: c.kind ?? 'prompt' }
-      const j: Judged = isRulesOnly ? { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: 0 } : await judge($, input, { isPrivate: false, budgetMs: HARD_STOP_MS, model, chain })
+      const j: Judged = isRulesOnly ? { verdict: rulesVerdict(input), source: 'rules', by: 'rules', ms: 0 } : await judge($, input, { isPrivate: false, budgetMs: HARD_STOP_MS, model, chain, jev })
       rows.push({ id: c.id, by: j.by, label: c.tier, picked: requiredOf(j.verdict, j.source, input.contextTokens), effort: j.verdict.effort, labelEffort: c.effort, source: j.source, ms: j.ms, confidence: j.verdict.confidence, gap: j.verdict.gap, checkable: j.verdict.checkable, reason: j.fail ? `${j.verdict.reason} [${j.fail}]` : j.verdict.reason })
     }
   }

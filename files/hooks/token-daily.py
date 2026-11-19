@@ -129,5 +129,7 @@ if __name__ == "__main__":
     open(path, "w").write(text + "\n")
     print(text)
     if "--notify" in sys.argv and sys.platform == "darwin":  # osascript notification is macOS-only
-        msg = summary(day, days, est).replace('"', "'")
-        subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Claude tokens" subtitle "Full report: {path.replace(os.path.expanduser("~"), "~")}"'], check=False)
+        # Text goes in as argv, never into the script, so quotes or backslashes in it can't break or inject AppleScript.
+        sub = "Full report: " + path.replace(os.path.expanduser("~"), "~")
+        subprocess.run(["osascript", "-e", "on run argv", "-e", 'display notification (item 1 of argv) with title "Claude tokens" subtitle (item 2 of argv)',
+                        "-e", "end run", summary(day, days, est), sub], check=False)
