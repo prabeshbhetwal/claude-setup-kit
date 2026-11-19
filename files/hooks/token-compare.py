@@ -105,6 +105,14 @@ def median_delta(before, after, rounds=1000):
     return st.median(before) - st.median(after), diffs[int(rounds * 0.025)], diffs[int(rounds * 0.975)]
 
 
+def total_range(strata, rounds=1000):
+    """95% bootstrap range of the summed saving (median drop x requests) over all rows, resampling each row independently."""
+    rnd = random.Random(0)
+    tot = sorted(sum((st.median(rnd.choices(b, k=len(b))) - st.median(rnd.choices(a, k=len(a)))) * n for b, a, n in strata)
+                 for _ in range(rounds))
+    return (tot[int(rounds * 0.025)], tot[int(rounds * 0.975)]) if strata else (0, 0)
+
+
 def fm(x):
     sign = "-" if x < 0 else ""
     x = abs(x)
@@ -145,7 +153,8 @@ def report(rows, now=None):
          "## Fixed context per session (the part the change affects)", "",
          "| Session type | Sessions before / after | First request, median before -> after | Drop (95% range) | Drop at the low end (p10) |"
          " After-week requests | Estimated tokens saved |", "|---|---|---|---|---|---|---|"]
-    lo_total = hi_total = covered = ci_lo = ci_hi = 0
+    lo_total = hi_total = covered = 0
+    strata = []  # (before firsts, after firsts, after-week requests) per compared row
     after_reqs = sum(r["n"] for r in rows if r["week"] == "after")
     for key in sorted(by, key=lambda k: -sum(r["n"] for r in by[k]["after"])):
         b, a = by[key]["before"], by[key]["after"]
@@ -160,12 +169,13 @@ def report(rows, now=None):
         n = sum(r["n"] for r in a)
         est = sorted((d * n, dp * n))
         lo_total, hi_total, covered = lo_total + est[0], hi_total + est[1], covered + n
-        ci_lo, ci_hi = ci_lo + lo * n, ci_hi + hi * n
+        strata.append((fb, fa, n))
         L.append(f"| {name} | {len(b)} / {len(a)} | {fm(st.median(fb))} -> {fm(st.median(fa))} | {fm(d)} ({fm(lo)} to {fm(hi)}) |"
                  f" {fm(dp)} | {n} | {fm(est[0])} to {fm(est[1])} |")
+    ci_lo, ci_hi = total_range(strata)
     L += ["", f"**Estimated saving in the after week: {fm(lo_total)} to {fm(hi_total)} tokens**, covering "
-              f"{100 * covered / after_reqs:.0f}% of after-week requests. The median drop alone is uncertain: its 95% range gives "
-              f"{fm(ci_lo)} to {fm(ci_hi)} tokens." if after_reqs else
+              f"{100 * covered / after_reqs:.0f}% of after-week requests. The median drop alone is uncertain: resampling every "
+              f"row together, the 95% range is {fm(ci_lo)} to {fm(ci_hi)} tokens." if after_reqs else
           "**No after-week sessions yet.** The table fills in from the day after the change.",
           "A negative number means the first request got larger. Each row's estimate is its drop times its own request count,"
           " using the median drop and the low-end (p10) drop as the two ends of the range.", "",
@@ -191,7 +201,7 @@ def selftest():
     d, lo, hi = median_delta([r["first"] for r in rows if r["week"] == "before"], [r["first"] for r in rows if r["week"] == "after"])
     assert (d, lo, hi) == (3000, 3000, 3000), (d, lo, hi)
     text = report(rows, now=AFTER[1])
-    assert "300.0k to 300.0k tokens" in text and "100%" in text and "95% range gives 300.0k to 300.0k" in text, text  # 3,000 x 100 requests
+    assert "300.0k to 300.0k tokens" in text and "100%" in text and "95% range is 300.0k to 300.0k" in text, text  # 3,000 x 100 requests
     assert f"| Requests | {100 / BEFORE_DAYS:.0f} | 14 |" in text, text  # per day: 100 over 30 days, 100 over 7
     assert "10 sessions, 100 requests" in baseline(rows) and "No Claude Code sessions" in baseline([])
     print("selftest ok")

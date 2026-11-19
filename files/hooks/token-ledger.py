@@ -82,7 +82,8 @@ def tail(path, size):
         f.seek(0, 2)
         cut = f.tell() > size
         f.seek(max(0, f.tell() - size))
-        lines = f.read().decode("utf-8", "replace").splitlines()
+        # Split on JSONL's own "\n" only: splitlines() would also break records at U+2028 and friends.
+        lines = [b.decode("utf-8", "replace") for b in f.read().split(b"\n") if b]
     return lines[1:] if cut else lines
 
 
@@ -186,8 +187,8 @@ def record(session, transcript, now=None, home=None, ledger=LEDGER, rtk=None, pi
 def selftest():
     import tempfile as _t
     with _t.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
-        f.write("aaaa\nbb\ncc\n")
-    assert tail(f.name, 5) == ["cc"] and tail(f.name, 99) == ["aaaa", "bb", "cc"], tail(f.name, 5)
+        f.write("aaaa\nb\u2028b\ncc\n")
+    assert tail(f.name, 5) == ["cc"] and tail(f.name, 99) == ["aaaa", "b\u2028b", "cc"], tail(f.name, 99)
     os.remove(f.name)
     import tempfile
     with tempfile.TemporaryDirectory() as d:
