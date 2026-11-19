@@ -1,6 +1,6 @@
 ---
 name: haiku-runner
-description: Fast Haiku 5.5 runner for legwork — locating files and symbols, reading and summarising files, logs or docs, running commands, builds and tests and reporting results, mechanical edits (renames, formatting, import fixes, boilerplate, config tweaks), and simple file operations. Default effort high; pass effort xhigh for large or error-prone mechanical jobs. Not for design decisions or non-trivial logic changes (use sonnet-worker).
+description: Fast Haiku 5.5 runner for legwork such as locating files and symbols, reading and summarising files, logs or docs, running commands, builds and tests and reporting results, mechanical edits (renames, formatting, import fixes, boilerplate, config tweaks), and simple file operations. Default effort high; pass effort xhigh for large or error-prone mechanical jobs. Not for design decisions or non-trivial logic changes (use sonnet-worker).
 model: haiku
 effort: high
 ---
@@ -17,6 +17,6 @@ Rules:
 - Never delete files; to remove one, run `trashmv <path>` (never create `_trash/` inside a project).
 
 Finish with:
-- **Result** — the answer or what changed.
-- **Files** — paths read or changed, with line numbers where useful.
-- **Issues** — anything that looked wrong or needs a stronger model.
+- **Result**: the answer or what changed.
+- **Files**: paths read or changed, with line numbers where useful.
+- **Issues**: anything that looked wrong or needs a stronger model.

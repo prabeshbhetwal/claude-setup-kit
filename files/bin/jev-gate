@@ -7,7 +7,10 @@
 
 Verdicts: BLOCK / ESCALATE / SECURITY-SENIOR REVIEW / NITS / MERGE. A MERGE verdict means a light review is
 enough; everything else gets the full review, starting with the flagged checks. Exit 2 = Jev unavailable
-(review normally). Credential-looking diffs are never sent: they return BLOCK locally.
+(review normally). Credential-looking diffs or descriptions are never sent: they return BLOCK locally.
+Policy site "jev-gate" (~/.claude/jev/policy.json sites_off, skip_paths, enabled). A diff longer than LIMIT
+is judged on its first LIMIT characters only, so it never gets the MERGE (light review) verdict.
+Offline check: jev-gate --test
 """
 import json
 import os
@@ -32,6 +35,7 @@ N = {
 }
 S = {"blast_radius": ["isolated change", "one module", "shared code", "core infrastructure"],
      "reviewer_effort": ["glance", "careful read", "domain expert or security reviewer"]}
+LIMIT = 60000
 C = {"primary_concern": {"none": "no real concern", "auth": "authn/authz/session", "data": "data loss or migration",
                          "injection": "injection or secrets", "api": "API compatibility", "tests": "test coverage"}}
 
@@ -53,17 +57,17 @@ def gate(diff, desc="", cwd=""):
     """(verdict, summary line) or None when Jev is unavailable or the path is skipped."""
     if not diff.strip():
         return None
-    if jev_lib._jev.SECRET.search(diff):
-        return "BLOCK", "credential-looking string in diff (not sent to Jev)"
+    if jev_lib._jev.SECRET.search(diff + "\n" + desc):  # everything that would leave the Mac
+        return "BLOCK", "credential-looking string in diff or description (not sent to Jev)"
     pol = jev_lib.policy()
-    if not jev_lib._allowed(pol, cwd):
+    if not jev_lib._allowed(pol, cwd, "jev-gate"):
         return None
     qs = {k: {"type": "noul", "instructions": v} for k, v in N.items()}
     qs |= {k: {"type": "score", "instructions": f"Rate {k.replace('_', ' ')} of this diff.", "criteria": v}
            for k, v in S.items()}
     qs |= {k: {"type": "choice", "instructions": "What is the main review concern?", "criteria": v} for k, v in C.items()}
     try:
-        a = jev_lib._post({"model": jev_lib._jev.MODEL, "state": {"pr_description": desc, "diff": diff[:60000]},
+        a = jev_lib._post({"model": jev_lib._jev.MODEL, "state": {"pr_description": desc, "diff": diff[:LIMIT]},
                            "questions": qs}, 15)["answers"]
     except Exception:
         return None
@@ -79,9 +83,12 @@ def gate(diff, desc="", cwd=""):
         v = "NITS"
     else:
         v = "MERGE"
+    if len(diff) > LIMIT and v == "MERGE":  # the unseen tail could hold anything
+        v = "NITS"
     flags = [f"{k} {p[k]:.2f}" for k in N if (p[k] >= 0.5) != (k in ("description_matches", "adds_tests", "merge_ready"))]
     summary = (f"concern {a['primary_concern']['choice']}; blast {a['blast_radius']['score']:.1f}/3; "
-               f"flags: {', '.join(flags) or 'none'}")
+               f"flags: {', '.join(flags) or 'none'}"
+               + (f"; diff truncated to {LIMIT} chars, full review required" if len(diff) > LIMIT else ""))
     jev_lib.log("jev-gate", "PR verdict", summary, p["merge_ready"], v == "MERGE")
     return v, summary
 
@@ -102,7 +109,31 @@ def hook():
                                              "additionalContext": f"jev-gate verdict: {v} ({summary}) -> {advice}."}}))
 
 
+def test():
+    """Offline: policy site, payload credential check, truncation. No network, no log writes."""
+    sent = []
+    clean = {**{k: {"noul": 0.1} for k in N}, "description_matches": {"noul": 0.9},
+             "merge_ready": {"noul": 0.9}, "blast_radius": {"score": 0.0}, "reviewer_effort": {"score": 0.0},
+             "primary_concern": {"choice": "none"}}
+    jev_lib._post = lambda body, timeout: sent.append(body) or {"answers": clean}
+    jev_lib.log = lambda *a, **k: None
+    pol = {**jev_lib.DEFAULTS}
+    jev_lib.policy = lambda: pol
+    diff = "+print('hello')\n"
+    assert gate(diff, "small change", "/")[0] == "MERGE" and len(sent) == 1
+    pol["sites_off"] = ["jev-gate"]
+    assert gate(diff, "", "/") is None and len(sent) == 1, "jev-gate in sites_off must not send"
+    pol["sites_off"] = []
+    secret = "pass" + "word=" + "Zx9" * 4
+    assert gate(diff, "rotate creds, " + secret, "/")[0] == "BLOCK" and len(sent) == 1, "secret in description sent"
+    v, summary = gate(diff * (LIMIT // len(diff) + 10), "", "/")
+    assert v != "MERGE" and "truncated" in summary and len(sent[-1]["state"]["diff"]) == LIMIT
+    print("jev-gate test ok")
+
+
 def main():
+    if "--test" in sys.argv:
+        return test()
     if "--hook" in sys.argv:
         try:
             hook()

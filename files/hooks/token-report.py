@@ -107,12 +107,12 @@ def month_bounds(ym):
 def scan(start, end):
     """Totals for the month, per-model-family split, and post-install session facts per stratum."""
     tot, fams = defaultdict(int), defaultdict(int)
-    by_type, firsts = defaultdict(int), defaultdict(list)
+    by_type, firsts, seen = defaultdict(int), defaultdict(list), set()  # seen: message ids, once across all files
     for kind, pattern in (("main", "/*/*.jsonl"), ("sub", "/*/*/subagents/*.jsonl")):
         for f in glob.glob(TC.P + pattern):
             if os.path.getmtime(f) < min(start.timestamp(), TC.AFTER[0].timestamp()):
                 continue
-            reqs = TC.requests(f)
+            reqs = TC.requests(f, seen)
             if not reqs:
                 continue
             key = (kind, reqs[0][3], TC.fam(reqs[0][1]))
@@ -250,6 +250,11 @@ def selftest():
         t = turns(5, p)
         assert t.count("\n| ") == 3 and "| 0.1k | 0.0k | - | $0.10 |" in t and "| 0.2k | - | - | - |" in t, t
         assert "No turns recorded yet" in turns(5, p + "x")
+        TC.P = d  # a resumed session's transcript repeats message m1: the report counts it once
+        for name in ("a", "b"):
+            os.makedirs(os.path.join(d, name))
+            open(os.path.join(d, name, "s.jsonl"), "w").write(json.dumps({"type": "assistant", "timestamp": "2026-11-10T01:00:00Z", "message": {"id": "m1", "usage": {"input_tokens": 7}}}) + "\n")
+        assert scan(datetime(2026, 11, 9), datetime(2026, 11, 16))[0]["tokens"] == 7
     print("selftest ok")
 
 

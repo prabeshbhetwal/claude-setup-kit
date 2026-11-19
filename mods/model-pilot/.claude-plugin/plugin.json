@@ -1,6 +1,6 @@
 {
   "name": "model-pilot",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Picks the cheapest Claude model and effort that will do each prompt reliably, shows what actually ran, and logs an estimated saving. Claude Code on macOS.",
   "license": "MIT",
   "author": {
@@ -53,9 +53,9 @@
     },
     "jev": {
       "type": "boolean",
-      "title": "Use Jev as the first judge when available",
-      "description": "If the jev command and a TypeSafe key are on this Mac, Jev judges each prompt (about half a second) and Haiku is the backup. Without them Haiku judges and nothing is missing. With Jev, the prompt text and a short digest of recent turns go to TypeSafe. Off: Haiku only.",
-      "default": true
+      "title": "Use Jev as the first judge (opt-in)",
+      "description": "Off by default. On: if the jev command and a TypeSafe key are on this Mac, Jev judges each prompt (about half a second) and Haiku is the backup; the prompt text and a short digest of recent turns go to TypeSafe, a third party. Jev also obeys ~/.claude/jev/policy.json (enabled, sites_off with site model-pilot, skip_paths). Off: Haiku only, and nothing is missing.",
+      "default": false
     },
     "judgeBudgetMs": {
       "type": "number",

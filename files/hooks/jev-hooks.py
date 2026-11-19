@@ -9,6 +9,8 @@
 
 jev-weekly.py reports each site from ~/.claude/jev/decisions.jsonl; promote a site to acting
 (block/ask/inject/prune) only once its flags look right.
+Consent is checked at run time too: nothing runs unless ~/.claude/kit/jev-hooks says "yes" (install.sh
+writes it), so hooks left in settings.json after a "no" send nothing.  Self-check: jev-hooks.py selftest
 """
 import json
 import os
@@ -27,6 +29,15 @@ GMAIL_Q = ("Is this email important and actionable for the user personally (a pe
            "a bill, an appointment, a security alert) rather than a newsletter, promotion or automated notice?")
 OUTPUT_Q = "Is this line needed to complete the user's current request?"
 MIN_OUTPUT_CHARS, MAX_LINES = 3000, 300
+CONSENT = os.path.expanduser("~/.claude/kit/jev-hooks")
+
+
+def consented() -> bool:
+    try:
+        with open(CONSENT) as f:
+            return f.read().strip() == "yes"
+    except OSError:
+        return False
 
 
 def strings(x):
@@ -115,6 +126,8 @@ def tool_output(payload, jev_lib):
 
 def main() -> None:
     site = sys.argv[1] if len(sys.argv) > 1 else ""
+    if not consented():
+        return
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         import jev_lib
@@ -134,5 +147,24 @@ def main() -> None:
         pass
 
 
+def selftest() -> None:
+    import io
+    import tempfile
+    import types
+    global CONSENT
+    calls = []
+    sys.modules["jev_lib"] = types.SimpleNamespace(scored=lambda *a, **k: calls.append(a))
+    CONSENT = os.path.join(tempfile.mkdtemp(), "jev-hooks")
+    sys.argv[1:] = ["pre-bash"]
+    for answer, want in ((None, 0), ("no\n", 0), ("yes\n", 1)):
+        if answer is not None:
+            with open(CONSENT, "w") as f:
+                f.write(answer)
+        sys.stdin = io.StringIO(json.dumps({"tool_input": {"command": "git push"}}))
+        main()
+        assert len(calls) == want, (answer, calls)
+    print("jev-hooks selftest ok")
+
+
 if __name__ == "__main__":
-    main()
+    selftest() if sys.argv[1:] == ["selftest"] else main()

@@ -180,7 +180,9 @@ if rc != 2 or "Ready to install" in out:
     fail("regression: a bad --skip must stop before anything is shown")
 hk = json.load(open(os.path.join(KIT, "lib/hooks.json")))
 deny = " ".join(hk["guard"]["deny"])
-for pat in ("Read(**/.env)", "Read(.env.*)", "*.pem", "git push * +*", "git -C * reset --hard", "git checkout -- .", "git restore .", "git stash clear", "find-generic-password"):
+if "Read(.env.*)" in hk["guard"]["deny"]:
+    fail("regression: a .env.* deny rule also blocks .env.example (deny wins over allow)")
+for pat in ("Read(**/.env)", "Read(.env.local)", "Read(**/.env.production)", "*.pem", "git push * +*", "git -C * reset --hard", "git checkout -- .", "git restore .", "git stash clear", "find-generic-password"):
     if pat not in deny:
         fail(f"regression: deny list lacks {pat}")
 for txt, label in ((readme, "README"), (open(os.path.join(KIT, "lib/catalog.txt")).read(), "catalog")):
@@ -193,7 +195,7 @@ if os.path.exists(H("h-mj/.claude/hooks/jev-hooks.py")):
 home = H("h-jev"); os.makedirs(home)
 rc, out = sh(["bash", "install.sh", "--only", "jev", "--yes"], home, "")
 pol = os.path.join(home, ".claude/jev/policy.json")
-if not os.path.exists(pol) or set(json.load(open(pol)).get("sites_off", [])) != {"house-rules-recall", "house-rules-mine"}:
+if not os.path.exists(pol) or not {"house-rules-recall", "house-rules-mine"} <= set(json.load(open(pol)).get("sites_off", [])):
     fail("regression: Jev installs with its data flows on instead of off")
 if os.path.exists(os.path.join(home, ".claude/settings.json")) and "jev-hooks.py" in open(os.path.join(home, ".claude/settings.json")).read():
     fail("regression: Jev background hooks added without a yes")
@@ -234,6 +236,37 @@ if cfg != {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo mi
     fail("regression: uninstall must remove only the kit's entries and the script, and keep the user's hooks")
 if sh(["bash", "install.sh", "--uninstall", "session-title"], home)[1].count("removed hook"):
     fail("regression: a second uninstall must change nothing")
+home = H("h-secret"); os.makedirs(os.path.join(home, ".claude"))
+json.dump({"env": {"ANTHROPIC_API_" + "KEY": "fake-value-redact-me-000"}}, open(os.path.join(home, ".claude/settings.json"), "w"))
+rc, out = sh(["bash", "install.sh", "--only", "session-title", "--yes"], home)
+if "fake-value-redact-me" in out:
+    fail("regression: the settings.json preview printed a secret")
+home = H("h-jevrevoke"); os.makedirs(home)
+sh(["bash", "install.sh", "--only", "jev", "--yes", "--jev-hooks", "yes"], home)
+sh(["bash", "install.sh", "--only", "jev", "--yes", "--jev-hooks", "no"], home)
+st = os.path.join(home, ".claude/settings.json")
+if os.path.exists(st) and "jev-hooks.py" in open(st).read():
+    fail("regression: saying no to Jev's background hooks left the earlier ones in settings.json")
+pol = json.load(open(os.path.join(home, ".claude/jev/policy.json")))
+if not {"codegraph-gate", "jev-gate", "model-pilot", "house-rules-recall", "house-rules-mine"} <= set(pol.get("sites_off", [])):
+    fail(f"regression: with no consent every Jev site must be off, got {pol.get('sites_off')}")
+home = H("h-period"); os.makedirs(home)
+sh(["bash", "install.sh", "--only", "measure", "--report", "week"], home)
+sh(["bash", "install.sh", "--only", "measure", "--yes"], home)
+if open(os.path.join(home, ".claude/kit/report-period")).read().strip() != "week":
+    fail("regression: an unattended re-run reset the report period")
+rc, out = sh(["bash", "install.sh", "--jev-share", "typo", "--tiers", "core"], H("h-badshare"))
+if rc != 2 or "Ready to install" in out:
+    fail("regression: a bad --jev-share must stop before anything is shown")
+home = os.path.join(T, "it's & <odd> home"); os.makedirs(home)
+sh(["bash", "install.sh", "--only", "safety,measure", "--yes"], home)
+rc, out = sh(["bash", "doctor.sh"], home)
+if "0 fail" not in out:
+    fail("regression: doctor fails for a HOME with a quote: " + " | ".join(l for l in out.splitlines() if "FAIL" in l)[:300])
+for plist in ("com.claude-setup-kit.token-report.plist", "com.claude-setup-kit.setup-monitor.plist"):
+    pth = os.path.join(home, "Library/LaunchAgents", plist)
+    if not os.path.exists(pth) or subprocess.run(["plutil", "-lint", pth], capture_output=True).returncode:
+        fail(f"regression: {plist} is not a valid plist when HOME has & or <")
 pr = subprocess.run([sys.executable, os.path.join(KIT, "lib/audit_proofs.py"), KIT], capture_output=True, text=True, timeout=900)
 print(pr.stdout.strip())
 if pr.returncode:

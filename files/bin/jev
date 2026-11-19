@@ -9,6 +9,8 @@ Filters: --min P (noul: keep p >= P; default 0.5), --only OPT (choice), --top N,
 Shared context for every item: --context "text".  Raw API body: jev raw < request.json
 Exit 0 ok; 2 Jev unavailable or refused (fall back to reading items yourself).
 Never send secrets: input that looks like a credential is refused.
+Honours ~/.claude/jev/policy.json like the hooks: refused when enabled is false, --site (default "cli")
+is in sites_off, or --cwd (default the current folder) is under a skip_paths entry.  Offline check: jev test
 """
 import argparse
 import concurrent.futures
@@ -50,9 +52,22 @@ URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-latest"
 BATCH = 40  # items per request; batches run in parallel
 SECRET = re.compile(
-    r"(-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|\bsk-[A-Za-z0-9_-]{20,}|\bgh[pousr]_[A-Za-z0-9]{30,}"
-    r"|xox[abpr]-[A-Za-z0-9-]{10,}|(?i:(password|passwd|secret|api[_-]?key|token)\s*[:=]\s*\S{8,}))"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|\bsk-[A-Za-z0-9_-]{20,}|\bsk_(?:live|test)_[A-Za-z0-9]{10,}"
+    r"|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bnpm_[A-Za-z0-9]{30,}|xox[abpr]-[A-Za-z0-9-]{10,}"
+    r"|(?i:\bbearer\s+\S{20,})|://[^/\s:@]+:[^/\s@]+@"  # Authorization header; URL user:password@
+    r"|(?i:\baws.{0,30}?[\"'\s:=]+)(?=[A-Za-z0-9/+]*[A-Z])(?=[A-Za-z0-9/+]*[a-z])[A-Za-z0-9/+]{40}\b"  # AWS secret access key near an aws label
+    # name containing secret/password/token/api key, bare or quoted (JSON), then a non-numeric value of 8+
+    r"|(?i:\w*(?:password|passwd|secret|api[_-]?key|token)\w*[\"']?\s*[:=]\s*[\"']?(?![\d.,]+\b)[^\s\"']{8,})"
 )
+
+
+def policy_allows(site: str, cwd: str) -> bool:
+    """The hooks' rule (jev_lib._allowed): enabled, site not in sites_off, cwd not under skip_paths."""
+    try:
+        import jev_lib  # lazy: jev_lib loads this file as a module, so a top-level import would be circular
+    except Exception:  # no jev_lib: refuse if a policy exists, since it cannot be read the same way
+        return not (Path.home() / ".claude/jev/policy.json").exists()
+    return bool(jev_lib._allowed(jev_lib.policy(), cwd, site))
 
 
 def die(msg: str) -> None:
@@ -122,7 +137,7 @@ def value(kind: str, a: dict):
 
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="jev", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("kind", choices=["noul", "choice", "score", "raw", "selftest"])
+    p.add_argument("kind", choices=["noul", "choice", "score", "raw", "selftest", "test"])
     p.add_argument("question", nargs="?", default="")
     p.add_argument("-o", "--opt", action="append", default=[], help="choice option: name=description")
     p.add_argument("-l", "--level", action="append", default=[], help="score level, lowest first")
@@ -133,13 +148,19 @@ def main(argv=None) -> None:
     p.add_argument("--top", type=int, default=0)
     p.add_argument("--all", action="store_true", help="print every item, no filtering")
     p.add_argument("--json", action="store_true", help="machine output")
+    p.add_argument("--site", default="cli", help="policy site name (sites_off in policy.json); default cli")
+    p.add_argument("--cwd", default="", help="folder the items come from (skip_paths); default current folder")
     a = p.parse_args(argv)
 
     if a.kind == "selftest":
         return selftest()
+    if a.kind == "test":
+        return offline_test()
     raw = sys.stdin.read()
     if SECRET.search(raw + a.context):
         die("input looks like it contains a credential; refusing to send it")
+    if not policy_allows(a.site, a.cwd):
+        die(f"refused by ~/.claude/jev/policy.json (disabled, site {a.site!r} in sites_off, or folder in skip_paths)")
     if a.kind == "raw":
         print(json.dumps(call(json.loads(raw))))
         return
@@ -200,6 +221,50 @@ def selftest() -> None:
     assert len(flags) == 45 and flags[1]["noul"] > flags[0]["noul"], "batch ordering wrong"
     assert SECRET.search("api_key = abcdef1234567890"), "secret guard missed"  # scan:allow gitleaks:allow (fake test value)
     print(f"selftest ok · noul {[round(x, 2) for x in p]} · 45-item batch tokens in={used['input_tokens']}")
+
+
+
+def offline_test() -> None:
+    """No network: the credential guard and the policy refusal. Run it with a throwaway HOME."""
+    import io
+    import tempfile
+    x = "Ab3dEf7hJk9mNp2qRs5tUv8wXy1zAb4cDe6fGh0j"  # fake 40-char value, built up below so scanners stay quiet
+    hits = ['"api_key": "' + x[:16] + '"', "client_secret=" + x[:12], "DB_PASSWORD: '" + x[:10] + "'",
+            "sk_" + "live_" + x[:24], "sk_" + "test_" + x[:24], "github_" + "pat_" + x[:30], "npm_" + x[:36],
+            "Authorization: Bearer " + x[:32], "postgres://admin:" + x[:8] + "@db.example.com/app",
+            "aws_secret_access_key = " + x, '"SecretAccessKey": "' + x + '"', "AWS secret " + x,
+            "api_key = " + "abcdef1234567890"]
+    for h in hits:
+        assert SECRET.search(h), f"secret guard missed: {h[:24]}"
+    for ok in ("max_tokens: 12345678", "input_tokens=4096", "http://localhost:8080/a@b", "token budget",
+               "aws commit 0123456789abcdef0123456789abcdef01234567"):
+        assert not SECRET.search(ok), f"false positive: {ok}"
+
+    import jev_lib
+    d = Path(tempfile.mkdtemp())
+    jev_lib.POLICY = d / "policy.json"
+    (d / "client").mkdir()
+    (d / "clientele").mkdir()
+    jev_lib.POLICY.write_text(json.dumps({"sites_off": ["off-site"], "skip_paths": [str(d / "client")]}))
+    assert policy_allows("cli", str(d)) and policy_allows("cli", str(d / "clientele"))
+    assert not policy_allows("off-site", str(d)) and not policy_allows("cli", str(d / "client"))
+
+    def refused(*argv) -> bool:
+        global call
+        real, sys.stdin = call, io.StringIO("a line\n")
+        call = lambda body: (_ for _ in ()).throw(AssertionError("sent despite policy"))  # noqa: E731
+        try:
+            main(["noul", "q", *argv])
+        except SystemExit as e:
+            return e.code == 2
+        finally:
+            call, sys.stdin = real, sys.__stdin__
+        return False
+    assert refused("--site", "off-site", "--cwd", str(d))
+    assert refused("--cwd", str(d / "client" / "sub"))
+    jev_lib.POLICY.write_text(json.dumps({"enabled": False}))
+    assert refused("--cwd", str(d)), "enabled false must refuse"
+    print("jev offline test ok")
 
 
 if __name__ == "__main__":

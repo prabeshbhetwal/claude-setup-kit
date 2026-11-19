@@ -65,7 +65,7 @@ All four have a 1M-token window and 128k max output. Fast mode (Fable and Opus o
 - Every turn re-sends everything in context: turn 40 re-reads the 39 before it.
 - Keep CLAUDE.md short and specific (under about 200 lines); move workflow instructions into skills, which load only when used. Turn off unneeded MCP servers.
 - Point at file paths or @-mention a file once; specific prompts avoid exploratory reads that stay in context.
-- Quiet noisy commands; output over 30,000 characters spills to a file (`BASH_MAX_OUTPUT_LENGTH`).
+- Quiet noisy commands; Bash output past `BASH_MAX_OUTPUT_LENGTH` characters (an environment setting, default about 30,000; this kit does not set it) is not shown to Claude in full.
 - `/loop` belongs in its own fresh session.
 - For known grunt work on models that allow it, thinking can be turned off (`MAX_THINKING_TOKENS=0`); thinking cannot be disabled on Opus 5.5, Sonnet 5.5 or Fable.
 

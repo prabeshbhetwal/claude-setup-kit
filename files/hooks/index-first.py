@@ -75,8 +75,9 @@ def pre(data):
     if os.path.exists(k + ".used"):
         return
     target = inp.get("path") or inp.get("file_path") or ""
-    if target and not os.path.realpath(os.path.join(root, target)).startswith(root):
-        return  # outside this repo
+    real = os.path.realpath(os.path.join(root, target))
+    if target and real != root and not real.startswith(root + os.sep):
+        return  # outside this repo (a sibling like <root>-old is outside too)
     if tool == "Read":
         if not CODE.search(target) or os.path.exists(k + ".edited") or os.path.exists(k + ".nudged"):
             return
@@ -107,10 +108,10 @@ def pre(data):
         log({"tool": tool, "root": root, "act": "allow-capped"})
         return out("PreToolUse", additionalContext="Index first: search allowed after 2 reminders. If codegraph_explore is failing, say so to the user.")
     now = time.time()
-    if now - last > BURST_S:
-        n += 1
+    if now - last > BURST_S:  # a new burst; `last` stays the burst's start, so rapid retries cannot extend it forever
+        n, last = n + 1, now
     with open(k + ".denied", "w") as f:
-        f.write(f"{int(n)} {now}")
+        f.write(f"{int(n)} {last}")
     log({"tool": tool, "root": root, "act": "deny"})
     out("PreToolUse", permissionDecision="deny", permissionDecisionReason=(
         f"Index first: {root} has a CodeGraph index, and this session has not used it yet. Call {explore_call(root)} "
@@ -192,6 +193,20 @@ def selftest():
     plain = os.path.join(d, "plain")
     os.makedirs(plain)
     assert run("pre", cwd=plain, **grep) == {}, "no index -> no gate"
+    sib = repo + "-old"  # shares the repo's prefix but is outside it
+    os.makedirs(sib)
+    assert run("pre", session_id="s3", tool_name="Grep", tool_input={"pattern": "x", "path": sib}) == {}, "sibling passes"
+    # rapid retries every 3 s (inside the 5 s burst window) must still reach the cap and be released
+    clock, real_time = [1000.0], time.time
+    time.time = lambda: clock[0]
+    try:
+        got = []
+        for _ in range(10):
+            got.append(run("pre", session_id="s4", **grep).get("permissionDecision"))
+            clock[0] += 3
+        assert got[-1] is None and got.count("deny") <= 4, got
+    finally:
+        time.time = real_time
     print("selftest ok")
 
 

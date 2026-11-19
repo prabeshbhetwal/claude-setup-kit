@@ -13,12 +13,14 @@ Example .claude/verify:  #!/bin/sh
                          npm test --silent
 A failing check exits 2: its last lines go back to Claude, which fixes the failure before finishing.
 Stop retries are capped at 3 per session so a check Claude cannot fix never loops forever.
+An edit marker older than the turn's prompt (left by an interrupted turn) is dropped, not verified.
 """
 import json
 import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 
 STATE = os.path.join(tempfile.gettempdir(), "claude-verify-done")
 TAIL = 40
@@ -71,6 +73,28 @@ def fail(label, code, out):
     return 2
 
 
+def prompt_time(transcript):
+    """When the user typed this turn's prompt (epoch s), from the transcript's tail; 0 when unknown."""
+    try:
+        with open(transcript, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - (1 << 20)))
+            lines = f.read().split(b"\n")
+    except (OSError, TypeError, ValueError):
+        return 0
+    for raw in reversed(lines):
+        try:
+            o = json.loads(raw) if b'"user"' in raw else {}
+            c = (o.get("message") or {}).get("content")
+            blocks = [b.get("type") for b in c if isinstance(b, dict)] if isinstance(c, list) else []
+            if o.get("type") == "user" and not o.get("isMeta") and o.get("toolUseResult") is None and (
+                    isinstance(c, str) and not c.startswith("<") or "text" in blocks and "tool_result" not in blocks):
+                return datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).timestamp()
+        except (ValueError, KeyError, AttributeError, TypeError):
+            continue
+    return 0
+
+
 def main(mode, data, state=STATE):
     project = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd()
     if os.path.realpath(project) not in allowed():
@@ -88,6 +112,11 @@ def main(mode, data, state=STATE):
         return fail(".claude/lint " + os.path.basename(path), code, out) if code else 0
     if mode == "stop":
         if not os.path.exists(edited):
+            return 0
+        if os.path.getmtime(edited) < prompt_time(data.get("transcript_path")):
+            for f in (edited, tries):  # stale: an earlier, interrupted turn edited; this one did not
+                if os.path.exists(f):
+                    os.remove(f)
             return 0
         n = int(open(tries).read() or 0) if os.path.exists(tries) else 0
         if data.get("stop_hook_active") and n >= MAX_RETRIES:
@@ -137,6 +166,16 @@ def selftest():
     open(os.path.join(d, ".claude", "lint.sh"), "w").write('case "$1" in *bad*) echo lint-err; exit 1;; esac\n')
     assert main("edit", {**ev, "tool_input": {"file_path": "bad.py"}}, st) == 2
     assert main("edit", {**ev, "tool_input": {"file_path": "ok.py"}}, st) == 0
+    # an interrupted turn left the marker; the next turn (prompt typed later, no edits) must not verify
+    open(v, "w").write("echo boom; exit 1\n")
+    tr = os.path.join(d, "t.jsonl")
+    line = lambda ts: json.dumps({"type": "user", "timestamp": ts, "message": {"role": "user", "content": "next task"}})
+    main("edit", ev, st)
+    open(tr, "w").write(line("2999-01-01T00:00:00Z") + "\n")
+    assert main("stop", {**ev, "transcript_path": tr}, st) == 0 and not os.listdir(st), "stale marker verified"
+    main("edit", ev, st)
+    open(tr, "w").write(line("2000-01-01T00:00:00Z") + "\n")
+    assert main("stop", {**ev, "transcript_path": tr}, st) == 2, "this turn's edit must still verify"
     print("selftest ok")
 
 

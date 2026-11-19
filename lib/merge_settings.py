@@ -18,6 +18,7 @@ import shutil
 import sys
 import tempfile
 import difflib
+import re
 import time
 
 
@@ -50,6 +51,16 @@ def merge(settings: dict, fragment: dict, components: list) -> list:
             if k not in env:
                 env[k] = v
                 changes.append(f"env {k}={v}")
+        old = settings.get("permissions", {}).get("deny", [])
+        for rule in part.get("retire_deny", []):  # rules an earlier kit version added and this one no longer wants
+            if rule in old:
+                old.remove(rule)
+                changes.append(f"retired deny {rule}")
+        allow = settings.setdefault("permissions", {}).setdefault("allow", []) if part.get("allow") else None
+        for rule in part.get("allow", []):
+            if rule not in allow:
+                allow.append(rule)
+                changes.append(f"allow {rule}")
         deny = settings.setdefault("permissions", {}).setdefault("deny", []) if part.get("deny") else None
         for rule in part.get("deny", []):
             if rule not in deny:
@@ -87,8 +98,22 @@ def remove(settings: dict, fragment: dict, components: list) -> list:
     return changes
 
 
+SECRET_KEY = re.compile(r"(key|token|secret|passw|credential|auth)", re.I)
+
+
+def redact(x, key=""):
+    """A copy with secret-looking values replaced, for printing only (the file itself is never redacted)."""
+    if isinstance(x, dict):
+        return {k: redact(v, k) for k, v in x.items()}
+    if isinstance(x, list):
+        return [redact(v, key) for v in x]
+    if isinstance(x, str) and (SECRET_KEY.search(key) or re.search(r"(sk-|sk_|ghp_|github_pat_|xox[bp]-|AKIA)[\w-]{8,}", x)):
+        return "<hidden>"
+    return x
+
+
 def show_diff(before: dict, after: dict, path: str) -> None:
-    a, b = (json.dumps(x, indent=2).splitlines() for x in (before, after))
+    a, b = (json.dumps(redact(x), indent=2).splitlines() for x in (before, after))
     for line in difflib.unified_diff(a, b, f"{path} (now)", f"{path} (after)", lineterm="", n=2):
         print("    " + line)
 
@@ -152,6 +177,14 @@ def selftest() -> None:
     s6 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}, "env": {"K": "1"}}
     remove(s6, r, ["a"])
     assert s6 == {"env": {"K": "1"}}, s6
+    k = "ANTHROPIC_API_" + "KEY"  # built at run time so the repo's secret scan does not flag this test
+    shown = redact({"env": {k: "abc", "COGNEE_BACKEND": "local"}, "x": "gh" + "p_" + "abcdefghijklmnop"})
+    assert shown == {"env": {k: "<hidden>", "COGNEE_BACKEND": "local"}, "x": "<hidden>"}, shown
+    s7 = {}
+    assert merge(s7, {"g": {"allow": ["Read(.env.example)"]}}, ["g"]) == ["allow Read(.env.example)"] and merge(s7, {"g": {"allow": ["Read(.env.example)"]}}, ["g"]) == []
+    s8 = {"permissions": {"deny": ["Read(.env.*)", "Read(./mine)"]}}
+    assert merge(s8, {"g": {"retire_deny": ["Read(.env.*)"], "deny": ["Read(.env.local)"]}}, ["g"]) == ["retired deny Read(.env.*)", "deny Read(.env.local)"]
+    assert s8["permissions"]["deny"] == ["Read(./mine)", "Read(.env.local)"], s8
     print("selftest ok")
 
 

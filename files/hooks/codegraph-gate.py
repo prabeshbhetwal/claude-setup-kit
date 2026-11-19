@@ -71,7 +71,8 @@ def is_code_prompt(prompt):
 
 def jev_says_code(prompt, cwd):
     """Second opinion after the regex: Jev drops false triggers (paths quoted in chat, tool names).
-    Fail-open: Jev unavailable -> True, so the regex alone decides as before."""
+    Policy site "codegraph-gate": when it is in sites_off (or Jev is off, unavailable or the folder is in
+    skip_paths) nothing is sent and the local score alone decides (True here)."""
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import jev_lib
@@ -91,11 +92,17 @@ def main():
     if not is_code_prompt(prompt) or not jev_says_code(prompt, json.loads(raw).get("cwd", "")):
         return
     try:
-        out = subprocess.run([shutil.which("codegraph") or "codegraph", "prompt-hook"], input=raw, capture_output=True,
+        out = subprocess.run([codegraph_bin(), "prompt-hook"], input=raw, capture_output=True,
                              text=True, timeout=30).stdout
     except (OSError, subprocess.TimeoutExpired):
         return
     sys.stdout.write(cap(out))
+
+
+def codegraph_bin():
+    """The kit's own install first: a hook's PATH may lack ~/.local/bin or hold a different codegraph."""
+    own = os.path.expanduser("~/.local/bin/codegraph")
+    return own if os.access(own, os.X_OK) else shutil.which("codegraph") or "codegraph"
 
 
 # ponytail: fixed char budget (~2k tokens); raise it if source keeps getting omitted.
@@ -146,7 +153,25 @@ def test():
     capped = cap(big, limit=200)
     assert "a" * 50 in capped and "b" * 500 not in capped, capped
     assert "`b.swift`" in capped and capped.endswith(CLOSE + "\n") and capped.count("```") % 2 == 0
+    test_jev_site()
     print("ok")
+
+
+def test_jev_site():
+    """sites_off ["codegraph-gate"] -> no TypeSafe call, regex decides; on -> one call with that site."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import jev_lib
+    except Exception:
+        print("jev part skipped: jev not installed")
+        return
+    sent, pol = [], {**jev_lib.DEFAULTS, "sites_off": ["codegraph-gate"]}
+    jev_lib.policy = lambda: pol
+    jev_lib._post = lambda body, timeout: sent.append(body) or {"answers": {"0": {"noul": 0.1}}}
+    jev_lib.log = jev_lib._failopen = lambda *a, **k: None
+    assert jev_says_code("fix the crash in SettingsModel", "/") and not sent, "sent despite sites_off"
+    pol["sites_off"] = []
+    assert not jev_says_code("fix the crash in SettingsModel", "/") and len(sent) == 1
 
 
 if __name__ == "__main__":

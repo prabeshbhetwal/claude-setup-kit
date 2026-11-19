@@ -8,7 +8,7 @@ Each line of turns.jsonl is {"text": "..."}. Writes DIR/NAME.json with, per turn
 engine's result (cost, time, error), every API request the engine logged in the
 transcript (model, effort, who made it), and the model-pilot log lines for the session.
 """
-import argparse, glob, json, os, subprocess, sys, time, uuid
+import argparse, glob, json, os, select, subprocess, sys, time, uuid
 from datetime import datetime, timezone
 
 DEFAULT_ENGINE = os.path.expanduser(
@@ -20,19 +20,29 @@ def now_iso():
 
 
 def read_until_result(proc, deadline):
-    events = []
-    while time.time() < deadline:
-        line = proc.stdout.readline()
-        if not line:
+    """The turn's events up to its result. None when the engine ends or the deadline passes;
+    past the deadline the child is killed. Reads the raw pipe, so a silent engine never
+    blocks past the deadline; bytes after the result wait in proc.pilot_buf for the next turn."""
+    events, buf, fd = [], getattr(proc, "pilot_buf", b""), proc.stdout.fileno()
+    while True:
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            events.append(ev)
+            if ev.get("type") == "result":
+                proc.pilot_buf = buf
+                return events, ev
+        left = deadline - time.time()
+        if left <= 0 or not select.select([fd], [], [], left)[0]:
+            proc.kill()
             return events, None
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        events.append(ev)
-        if ev.get("type") == "result":
-            return events, ev
-    return events, None
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            return events, None
+        buf += chunk
 
 
 def transcript_rows(session):
@@ -108,7 +118,10 @@ def main():
         print(f"turn {i}: {'ERR' if results[-1]['isError'] else 'ok'} cost={results[-1]['costUsd']}", file=sys.stderr)
         if res is None:
             break
-    proc.stdin.close()
+    try:
+        proc.stdin.close()
+    except BrokenPipeError:  # the engine was killed at the deadline
+        pass
     try:
         proc.wait(timeout=60)
     except subprocess.TimeoutExpired:

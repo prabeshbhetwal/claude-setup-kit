@@ -32,7 +32,7 @@ Classify each substantial task without asking:
 - Keep project-specific knowledge in project, not global instructions.
 
 ## Automatic Maintenance
-- As work progresses, capture durable decisions, commands, conventions, constraints, workflows and repeated corrections in relevant instruction file.
+- As work progresses, note durable decisions, commands, conventions, constraints, workflows and repeated corrections that belong in an instruction file. Propose the change (file + exact lines); write it only after I say yes. An explicit "remember this" counts as yes.
 - Never store debugging notes, one-off observations, transient task state or speculative assumptions as permanent instructions.
 - Keep valid existing knowledge; avoid duplication; keep files concise. Update existing file over creating overlapping one.
 - Remove or revise obsolete guidance only when confidently superseded and file-safety rules allow.

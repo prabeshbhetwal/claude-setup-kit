@@ -27,3 +27,10 @@ export const outPerStep = (tier: Tier, effort: Effort | 'max' | undefined): numb
  * rule never lowers a job into low; a task judged low stays low.
  */
 export const effortBelow = (e: Effort): Effort => (e === 'low' ? 'low' : ORDER[Math.max(1, ORDER.indexOf(e) - 1)] ?? 'medium')
+
+/** Notes a sub-agent's judged effort, keeping the newest `max` so a long session never grows the map without end. */
+export function rememberAgentEffort(m: Map<string, Effort>, agentId: string, effort: Effort, max = 64): void {
+  m.delete(agentId)
+  m.set(agentId, effort)
+  while (m.size > max) m.delete(m.keys().next().value as string)
+}

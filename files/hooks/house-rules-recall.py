@@ -17,8 +17,8 @@ def main():
         import house_rules_store as T
         if not os.path.exists(T.RULES):
             return
-        prompt = json.load(sys.stdin).get("prompt", "")
-        rules = T.recall(prompt)
+        payload = json.load(sys.stdin)
+        rules = T.recall(payload.get("prompt", ""), cwd=payload.get("cwd", ""))
         if not rules:
             return
         text = T.note(rules)

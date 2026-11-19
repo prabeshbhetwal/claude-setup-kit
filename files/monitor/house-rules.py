@@ -35,7 +35,7 @@ def sentences(text):
 
 def mine(days, use_jev=True):
     since = time.time() - days * 86400
-    found, seen = [], set()  # (sentence, kind, date, session)
+    found, seen = [], set()  # (sentence, kind, date, session, project cwd)
     for f in sorted(glob.glob(C.PROJECTS + "/*/*.jsonl"), key=os.path.getmtime):
         if os.path.getmtime(f) < since:
             continue
@@ -51,15 +51,17 @@ def mine(days, use_jev=True):
             for s in sentences(text):
                 ui = T.is_ui(s) or (ui_session and T.is_ui(text))
                 if EXPLICIT.search(s) and ui:
-                    found.append((s, "explicit", t, sid))
+                    found.append((s, "explicit", t, sid, r["cwd"]))
                 elif corr and ui_session and T.is_ui(s):
-                    found.append((s, "correction", t, sid))
+                    found.append((s, "correction", t, sid, r["cwd"]))
     probs = None
     if use_jev and found:
-        probs = T.jev_probs("house-rules-mine", QUESTION, [T.redact(s) for s, *_ in found], "", timeout=120)
+        # each sentence carries its project folder: skip_paths projects are never sent (p stays None)
+        probs = T.jev_probs("house-rules-mine", QUESTION, [T.redact(f[0]) for f in found], "", timeout=120,
+                            cwds=[f[4] or "" for f in found])
     cands, rules = T.load(T.CANDS), T.load(T.RULES)
     added = 0
-    for i, (s, kind, t, sid) in enumerate(found):
+    for i, (s, kind, t, sid, _) in enumerate(found):
         p = probs[i] if probs else None
         if p is not None and p < 0.5:
             continue

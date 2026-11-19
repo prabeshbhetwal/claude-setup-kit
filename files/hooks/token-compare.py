@@ -45,8 +45,9 @@ def ctx(u):
     return (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
 
 
-def requests(path):
-    """Unique-by-message.id requests of one transcript, oldest first: (time, model, usage, entrypoint)."""
+def requests(path, seen=None):
+    """Unique-by-message.id requests of one transcript, oldest first: (time, model, usage, entrypoint).
+    seen: message ids already counted from other files (a resumed or forked session copies them); updated here."""
     reqs = {}
     for line in open(path, errors="ignore"):
         if '"assistant"' not in line:
@@ -64,6 +65,9 @@ def requests(path):
         old = reqs.get(mid)
         if not old or (u.get("output_tokens") or 0) >= (old[2].get("output_tokens") or 0):
             reqs[mid] = (t, msg.get("model"), u, o.get("entrypoint") or "unknown")
+    if seen is not None:
+        reqs = {k: v for k, v in reqs.items() if k not in seen}
+        seen.update(reqs)
     return sorted(reqs.values(), key=lambda r: r[0])
 
 
@@ -147,6 +151,7 @@ def report(rows, now=None):
     for r in rows:
         by[(r["kind"], r["ep"], r["fam"])][r["week"]].append(r)
     days = max(0, min(7, (now - AFTER[0]).days))
+    span = min(7.0, max((now - AFTER[0]).total_seconds() / 86400, 1 / 24))  # per-day figures: elapsed time, part-days too
     L = [f"# Token comparison: {BEFORE_DAYS} days before vs 7 days after {CHANGE:%Y-%m-%d}", "",
          f"Run {now:%Y-%m-%d %H:%M}. Before {BEFORE[0]:%d %b} to {BEFORE[1] - timedelta(days=1):%d %b}; "
          f"after {AFTER[0]:%d %b} to {AFTER[1] - timedelta(days=1):%d %b} ({days} of 7 after-days complete).", "",
@@ -181,10 +186,10 @@ def report(rows, now=None):
           "A negative number means the first request got larger. Each row's estimate is its drop times its own request count,"
           " using the median drop and the low-end (p10) drop as the two ends of the range.", "",
           "## Totals per day (follow workload, not just setup)", "",
-          f"| | Before, per day ({BEFORE_DAYS} days) | After, per day ({max(days, 1)} days) |", "|---|---|---|"]
+          f"| | Before, per day ({BEFORE_DAYS} days) | After, per day ({span:.1f} days) |", "|---|---|---|"]
     tot = {w: [r for r in rows if r["week"] == w] for w in ("before", "after")}
     for label, fn in totals(fm):
-        L.append(f"| {label} | {fn(tot['before'], BEFORE_DAYS)} | {fn(tot['after'], max(days, 1))} |")
+        L.append(f"| {label} | {fn(tot['before'], BEFORE_DAYS)} | {fn(tot['after'], span)} |")
     if len(PROBE) == 2:
         L += ["", "## Controlled test (same prompt, fresh CLI session)", "",
               f"Before {PROBE[0]:,} tokens, after {PROBE[1]:,}: {PROBE[0] - PROBE[1]:,} fewer on the first request. One run each."]
@@ -205,6 +210,16 @@ def selftest():
     assert "300.0k to 300.0k tokens" in text and "100%" in text and "95% range is 300.0k to 300.0k" in text, text  # 3,000 x 100 requests
     assert f"| Requests | {100 / BEFORE_DAYS:.0f} | 14 |" in text, text  # per day: 100 over 30 days, 100 over 7
     assert "10 sessions, 100 requests" in baseline(rows) and "No Claude Code sessions" in baseline([])
+    part = report(rows, now=AFTER[0] + timedelta(days=3, hours=12))  # 100 after-requests in 3.5 days, not 3
+    assert "| Requests | 3 | 29 |" in part and "(3.5 days)" in part, part
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:  # a message id copied into a second transcript counts once
+        line = json.dumps({"type": "assistant", "timestamp": "2026-11-10T01:00:00Z",
+                           "message": {"id": "m1", "usage": {"input_tokens": 7}}}) + "\n"
+        for name in ("a.jsonl", "b.jsonl"):
+            open(os.path.join(d, name), "w").write(line)
+        seen = set()
+        assert len(requests(os.path.join(d, "a.jsonl"), seen)) == 1 and requests(os.path.join(d, "b.jsonl"), seen) == []
     print("selftest ok")
 
 

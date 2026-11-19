@@ -79,11 +79,27 @@ export function addUsage(a: Usage, b: Usage | null | undefined): Usage {
 }
 
 /**
- * Estimated saving against the menu model: the turn's requests priced on the menu
- * tier minus on the tier that ran, minus the Haiku judge call. An estimate: a different
- * model would have had different cache hits and written different output.
+ * Each tier's cost for a turn: `later` holds the requests after the first, already
+ * priced; the first is priced on the tier that ran as billed, on any other as if its
+ * own cache state applied. The menu's tier counts as warm whenever the chat had a warm
+ * cache: it would have stayed warm had the pilot not moved away from it.
  */
-export function estSavingUsd(c: Costs, menu: Tier, ran: Tier, judge: Usage | undefined): number {
-  const saving = c[menu] - c[ran] - (judge ? priceOf(judge, 'haiku') : 0)
+export function turnCosts(later: Costs, first: Usage | undefined, ran: Tier, menu: Tier, warmAtStart: readonly Tier[]): Costs {
+  const out = { ...later }
+  if (!first) return out
+  for (const t of TIER_LIST) {
+    const isWarm = warmAtStart.includes(t) || (t === menu && warmAtStart.length > 0)
+    out[t] += priceOf(t === ran ? first : asIfOn(first, isWarm), t)
+  }
+  return out
+}
+
+/**
+ * Estimated saving against the menu model: the turn's requests priced on the menu
+ * tier minus on the tier that ran, minus the judge call on the judge's own tier. An
+ * estimate: a different model would have had different cache hits and written different output.
+ */
+export function estSavingUsd(c: Costs, menu: Tier, ran: Tier, judge: Usage | undefined, judgeTier: Tier): number {
+  const saving = c[menu] - c[ran] - (judge ? priceOf(judge, judgeTier) : 0)
   return Math.round(saving * 1e6) / 1e6
 }

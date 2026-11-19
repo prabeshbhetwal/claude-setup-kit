@@ -157,16 +157,16 @@ export function decide(i: DecideInput): Decision {
   }
 
   // Candidates: the required tier, and any higher tier that is the menu's or
-  // still has this conversation in its cache. The cheapest for this turn wins.
+  // still has this conversation in its cache (never above the menu with upgrades off). The cheapest for this turn wins.
   let ceiling = maxTier(required, i.menuTier)
   for (const t of TIERS) {
     const w = i.warm[t]
-    if (w && i.now - w.at < i.cacheTtlMs) ceiling = maxTier(ceiling, t)
+    if (w && i.now - w.at < i.cacheTtlMs && (i.canUpgrade || rank(t) <= rank(i.menuTier))) ceiling = maxTier(ceiling, t)
   }
   const horizon = 1 + Math.min(Math.max(i.lowerStreak, 0), 3)
   // A tier above the one required does the job with less thinking: one effort level
-  // lower, unless the person set the effort. Each candidate is priced at its own effort.
-  const isOwnEffort = i.explicit.effort !== undefined || i.isEffortPinned
+  // lower, unless the person set the effort or this is the high-effort retry of a failed check.
+  const isOwnEffort = i.explicit.effort !== undefined || i.isEffortPinned || i.isRetry === true
   const effortOn = (t: Tier): Effort | 'max' | undefined =>
     !isOwnEffort && rank(t) > rank(required) ? effortBelow(v.effort) : effort
   let best: Tier = required
@@ -253,24 +253,15 @@ export function agentFileNamesModel(markdown: string): boolean {
  */
 export const rulesFloor = (rules: Tier, menu: Tier): Tier => (rules === 'haiku' ? 'haiku' : maxTier(rules, menu))
 
-/** Sub-agents are fresh threads: no cache to weigh, so the required tier runs. */
-export function agentTier(v: Verdict, source: 'judge' | 'rules', parent: Tier): Tier {
-  if (source === 'rules') return rulesFloor(v.tier, parent)
-  return v.confidence < 0.6 ? tierUp(v.tier, 'opus') : v.tier
-}
-
-// ------------------------------------------------------------------ privacy
-
-/** Whether `cwd` is under one of the folders listed for rules-only judging. */
-export function isPrivateFolder(cwd: string, list: string, home: string): boolean {
-  const norm = (s: string) => s.replace(/\/+$/, '')
-  const here = norm(cwd)
-  return list
-    .split(/[,\n]/)
-    .map(s => s.trim())
-    .filter(Boolean)
-    .map(s => norm(s === '~' || s.startsWith('~/') ? home + s.slice(1) : s))
-    .some(f => here === f || here.startsWith(`${f}/`))
+/**
+ * Sub-agents are fresh threads: no cache to weigh, so the required tier runs. Never
+ * above the parent with upgrades off, and Opus instead of Fable while Fable needs a yes
+ * (a spawn has no turn to ask in).
+ */
+export function agentTier(v: Verdict, source: 'judge' | 'rules', parent: Tier, canUpgrade: boolean, needsFableYes: boolean): Tier {
+  const t = source === 'rules' ? rulesFloor(v.tier, parent) : v.confidence < 0.6 ? tierUp(v.tier, 'opus') : v.tier
+  const capped = canUpgrade || rank(t) <= rank(parent) ? t : parent
+  return capped === 'fable' && parent !== 'fable' && needsFableYes ? 'opus' : capped
 }
 
 // ------------------------------------------------------------------ handoff

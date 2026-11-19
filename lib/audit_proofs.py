@@ -20,8 +20,12 @@ echo "$*" >> "$FAKE_LOG"
 case "$*" in
   "--version") echo "2.1.400 (Claude Code)" ;;
   "plugin marketplace list --json") echo '[{"name": "claude-setup-kit"}]' ;;
-  "plugin list --json") if [ "$FAKE_PILOT" = enabled ]; then echo '[{"id": "model-pilot@claude-setup-kit", "enabled": true}]'; else echo '[]'; fi ;;
-  "plugin install"*) [ "$FAKE_INSTALL" = ok ] ;;
+  "plugin list --json") case "$FAKE_PILOT" in
+      enabled) echo '[{"id": "model-pilot@claude-setup-kit", "enabled": true}]' ;;
+      absent) if [ -f "$FAKE_LOG.installed" ]; then echo '[{"id": "model-pilot@claude-setup-kit", "enabled": true}]'; else echo '[]'; fi ;;
+      disabled) echo '[{"id": "model-pilot@claude-setup-kit", "enabled": false}]' ;;
+      *) echo '[]' ;; esac ;;
+  "plugin install"*) [ "$FAKE_INSTALL" = ok ] && : > "$FAKE_LOG.installed" ;;
   *) exit 0 ;;
 esac
 '''
@@ -73,6 +77,25 @@ mu = next((i for i, c in enumerate(calls) if c == "plugin marketplace update cla
 pu = next((i for i, c in enumerate(calls) if c == "plugin update model-pilot@claude-setup-kit"), None)
 if mu is None or pu is None or pu < mu:
     bad.append(f"refresh: a re-run must update the marketplace, then the plugin (calls: {calls})")
+
+# 2b. Model pilot installed but switched off: the other selector must stay on
+home, log = fresh("sel-disabled", True)
+run(home, ["--only", "model-pilot"], {"FAKE_LOG": log, "FAKE_INSTALL": "ok", "FAKE_PILOT": "disabled"}, "y\n" * 40)
+if any(c.startswith("plugin disable other@claude-model-selector") for c in open(log).read().splitlines()):
+    bad.append("selector: Model pilot is switched off, yet the other selector was switched off too (none left on)")
+
+# 2c. the Model pilot settings writer keeps a symlinked settings.json and its 0600 mode
+home, log = fresh("symlink", False)
+real = os.path.join(home, "dotfiles-settings.json")
+os.replace(os.path.join(home, ".claude/settings.json"), real)
+os.symlink(real, os.path.join(home, ".claude/settings.json"))
+os.chmod(real, 0o600)
+run(home, ["--only", "model-pilot", "--yes"], {"FAKE_LOG": log, "FAKE_INSTALL": "ok", "FAKE_PILOT": "absent"})
+link = os.path.join(home, ".claude/settings.json")
+if not os.path.islink(link) or (os.stat(real).st_mode & 0o777) != 0o600 or "pluginConfigs" not in open(real).read():
+    bad.append("settings: Model pilot's writer replaced the symlink or widened the 0600 permissions")
+elif '"jev": false' not in open(real).read():
+    bad.append("consent: Model pilot must be written with jev off when nobody said yes")
 
 # 3. hook timing: what runs on every prompt or shell command, from a kit install in a throwaway HOME
 home, log = fresh("timing", False)

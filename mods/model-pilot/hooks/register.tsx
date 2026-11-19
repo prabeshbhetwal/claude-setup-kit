@@ -3,15 +3,18 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import { rememberAgentEffort } from './effort'
 import { appendLog, isRoutableAgent, judge } from './engine'
 import { runEval } from './evalrun'
 import { afterAnswer, FABLE_CHAT, fableQuestion, needsFableYes, RUN_FABLE, USE_OPUS } from './fable'
 import { agentTier, estTurnCost, HANDOFF_PROMPT, spawnNote, tierOf } from './policy'
 import type { Decision, Effort } from './policy'
-import { begin, CACHE_TTL_MS, chainOf, finish, isPrivateHere, noteSwitch, prestart, record, settle, turnOf, warmNow } from './route'
+import { isPrivateHere } from './privacy'
+import { chainOf, optionsOf } from './options'
+import type { Options } from './options'
+import { begin, CACHE_TTL_MS, finish, noteSwitch, prestart, record, settle, turnOf, warmNow } from './route'
 import { bandText } from './band'
 import { costText, HELP, statusText } from './status'
-import type { Options } from './route'
 import type { PilotFlags, PilotView } from '../types'
 
 const view = atom({ plugin: 'model-pilot', key: 'view' } as const, null as PilotView | null)
@@ -43,17 +46,7 @@ async function withFableYes($: EngineInterface, o: Options, d: Decision, menuMod
 }
 
 export const register: Register = (on, options) => {
-  const o: Options = {
-    privacy: options.privacy === true,
-    privateFolders: typeof options.privateFolders === 'string' ? options.privateFolders : '',
-    allowUpgrade: options.allowUpgrade !== false,
-    handoff: typeof options.handoff === 'string' ? options.handoff : 'auto',
-    useJev: options.jev !== false,
-    judgeBudgetMs: typeof options.judgeBudgetMs === 'number' && options.judgeBudgetMs > 0 ? options.judgeBudgetMs : 2500,
-    judgeModel: typeof options.judgeModel === 'string' && options.judgeModel.trim() ? options.judgeModel.trim() : 'haiku',
-    isShadow: options.shadow === true,
-    confirmFable: options.confirmFable !== false,
-  }
+  const o: Options = optionsOf(options)
   const isEnabled = options.enabled !== false
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'pilot', description: 'Model pilot: on, off, auto, status, cost', argumentHint: 'on|off|auto|status|cost' })
@@ -175,7 +168,7 @@ export const register: Register = (on, options) => {
           { isPrivate: await isPrivateHere($, o), budgetMs: o.judgeBudgetMs * 2, model: o.judgeModel, chain: chainOf(o) },
         )
         const parent = tierOf(e.parentModel) ?? 'sonnet'
-        const picked = agentTier(j.verdict, j.source, parent)
+        const picked = agentTier(j.verdict, j.source, parent, o.allowUpgrade, o.confirmFable && !isFableOkHere)
         tier = picked
         // Its own effort: the judged one, never low on haiku (Anthropic: low skips searches).
         effort = picked === 'haiku' && j.verdict.effort === 'low' ? 'medium' : j.verdict.effort
@@ -188,7 +181,7 @@ export const register: Register = (on, options) => {
     }
     if (!tier || !line) return next(e)
     const out = await next({ ...e, model: tier })
-    if (out.agentId && effort) agentEffort.set(out.agentId, effort)
+    if (out.agentId && effort) rememberAgentEffort(agentEffort, out.agentId, effort)
     const actual = out.model ?? null
     void appendLog($, { ts: new Date(await $.clock.now()).toISOString(), session: await $.session.id(), ...line, actual, actual_from: 'api', mismatch: tierOf(actual ?? undefined) !== tier, est_saving_usd: 0 }).catch(() => undefined)
     return out

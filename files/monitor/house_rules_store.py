@@ -6,6 +6,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 import time
 
 HOME = os.environ.get("HOUSE_RULES_HOME") or os.path.expanduser("~/.claude/house-rules")
@@ -143,26 +144,40 @@ def week_markers(a, b, turns):
 
 
 MAX_RULES, MAX_CHARS, JEV_TIMEOUT = 4, 600, 1.5
+JEV_DIR = os.path.expanduser("~/.claude/hooks")
 
 
-def jev_probs(site, question, items, context, timeout=JEV_TIMEOUT):
-    """Jev P(yes) per item within `timeout` seconds; None when Jev is off, slow or refuses."""
-    import sys
-    sys.path.insert(0, os.path.expanduser("~/.claude/hooks"))
+def jev_probs(site, question, items, context, timeout=JEV_TIMEOUT, cwds=None):
+    """Jev P(yes) per item within `timeout` seconds; None when Jev is off, slow or refuses.
+    cwds: the project folder of each item; items from a skip_paths folder are never sent (their p is None).
+    Runs in a child process killed at the deadline: jev_lib's executor threads are joined at exit, so a
+    thread here would still hold the prompt for Jev's whole timeout."""
+    req = {"jev_dir": JEV_DIR, "site": site, "q": question, "items": items, "ctx": context,
+           "cwds": cwds or [os.getcwd()] * len(items)}
     try:
-        import jev_lib
-        import threading
-        out = []
-        # A daemon thread: an executor's worker is joined at exit, which held the prompt for Jev's full 3 s timeout.
-        t = threading.Thread(target=lambda: out.append(jev_lib.noul(site, question, items, context)), daemon=True)
-        t.start()
-        t.join(timeout)
-        return out[0] if out else None
-    except Exception:
+        r = subprocess.run([sys.executable, os.path.abspath(__file__), "--jev-child"], input=json.dumps(req),
+                           capture_output=True, text=True, timeout=timeout)
+        return json.loads(r.stdout) if r.returncode == 0 else None
+    except (subprocess.TimeoutExpired, OSError, ValueError):
         return None
 
 
-def recall(prompt, rules=None, use_jev=True):
+def _jev_child():
+    a = json.load(sys.stdin)
+    sys.path.insert(0, a["jev_dir"])
+    import jev_lib
+    pol = jev_lib.policy()
+    idx = [i for i, c in enumerate(a["cwds"]) if c and not jev_lib.skipped(pol, c)]  # unknown folder: not sent
+    probs = jev_lib.noul(a["site"], a["q"], [a["items"][i] for i in idx], a["ctx"], a["cwds"][idx[0]]) if idx else None
+    out = None
+    if probs is not None:
+        out = [None] * len(a["items"])
+        for i, p in zip(idx, probs):
+            out[i] = p
+    print(json.dumps(out))
+
+
+def recall(prompt, rules=None, use_jev=True, cwd=""):
     """The rules to inject for this prompt (may be empty). Silent on short prompts and slash commands."""
     p = prompt.strip()
     if len(p.split()) < 4 or p.startswith(("/", "<")):
@@ -173,9 +188,10 @@ def recall(prompt, rules=None, use_jev=True):
     hits = [r for r in hits if ui or not set(r.get("tags", [])) <= {"layout", "colour", "type", "motion", "copy", "a11y", "ui"}]
     if hits and use_jev:  # BM25 alone fires on loose word overlap; Jev confirms every hit (only ~10% of prompts get here)
         probs = jev_probs("house-rules-recall", "Should an assistant apply this standing user preference while doing the request?",
-                          [r["rule"] for r in hits[:8]], "Request: " + redact(p[:1500]))
+                          [r["rule"] for r in hits[:8]], "Request: " + redact(p[:1500]),
+                          cwds=[cwd or os.getcwd()] * len(hits[:8]))
         if probs is not None:
-            hits = [r for r, pr in sorted(zip(hits, probs), key=lambda x: -x[1]) if pr >= 0.7]
+            hits = [r for r, pr in sorted(zip(hits, probs), key=lambda x: -(x[1] or 0)) if (pr or 0) >= 0.7]
         else:
             hits = [r for r in hits if r["score"] >= 4.0][:2]
     out, size = [], 0
@@ -189,3 +205,7 @@ def recall(prompt, rules=None, use_jev=True):
 
 def note(rules):
     return "House rules (user-approved, apply if relevant):\n" + "\n".join(f"- {r['rule']}" for r in rules)
+
+
+if __name__ == "__main__" and sys.argv[1:] == ["--jev-child"]:
+    _jev_child()

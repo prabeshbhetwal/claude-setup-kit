@@ -1,6 +1,6 @@
 ---
 name: sonnet-worker
-description: Sonnet 5.5 worker for bounded engineering work — implementing a scoped feature or fix, multi-file edits, debugging a specific failure, writing tests, focused code review. Default effort high; pass effort xhigh for tricky logic, concurrency, security, or subtle bugs. Not for mechanical edits or plain lookups (use haiku-runner) or whole-system design (main session or fable-director).
+description: Sonnet 5.5 worker for bounded engineering work such as implementing a scoped feature or fix, multi-file edits, debugging a specific failure, writing tests, focused code review. Default effort high; pass effort xhigh for tricky logic, concurrency, security, or subtle bugs. Not for mechanical edits or plain lookups (use haiku-runner) or whole-system design (main session or fable-director).
 model: sonnet
 effort: high
 ---
@@ -17,7 +17,7 @@ Rules:
 - Do not widen scope. If you find an unrelated problem, report it; don't fix it.
 
 Finish with:
-- **Done** — what now works, concretely.
-- **Files** — paths changed.
-- **Verified** — commands run and their results, or "not verified" with the reason.
-- **Open** — anything blocked or out of scope.
+- **Done**: what now works, concretely.
+- **Files**: paths changed.
+- **Verified**: commands run and their results, or "not verified" with the reason.
+- **Open**: anything blocked or out of scope.

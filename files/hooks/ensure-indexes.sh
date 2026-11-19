@@ -56,41 +56,48 @@ fi
 # mkdir is atomic: a second session opening the same repo won't start a duplicate build.
 # A lock older than 45 min (past the 40 min of timeouts below) belongs to a killed build; clear it so refreshes never stop for good.
 # Every command is wrapped in timeout (600 s sync, 1800 s build): a hung tool exits 124, the stamp
-# stays unwritten, and the next turn retries — nothing can block refreshes forever.
-build() { # $1 = lock name, $2 = shell command (runs in the repo; reads TO CG GF sig stamp from the environment)
+# stays unwritten, and the next turn retries: nothing can block refreshes forever.
+# One lock per repo for init, build and refresh: two of them must never run at once on the same repo.
+build() { # $1 = shell command (runs in the repo; reads TO CG GF sig stamp from the environment)
   export TO CG GF sig stamp r
-  lock="$logdir/$key.$1.lock"
+  lock="$logdir/$key.lock"
   find "$lock" -maxdepth 0 -mmin +45 -exec rmdir {} \; 2>/dev/null
   mkdir "$lock" 2>/dev/null || return 0
   if [ "$mode" = fg ]; then   # fg mode: wait, report failure via exit code
-    ( cd "$r" && { echo "[$(date '+%F %T')] $2"; sh -c "$2"; } >> "$log" 2>&1 ) </dev/null; rc=$?
+    ( cd "$r" && { echo "[$(date '+%F %T')] $1"; sh -c "$1"; } >> "$log" 2>&1 ) </dev/null; rc=$?
     rmdir "$lock"; return $rc
   fi
-  ( cd "$r" && { echo "[$(date '+%F %T')] $2"; sh -c "$2"; } >> "$log" 2>&1; rmdir "$lock" ) </dev/null >/dev/null 2>&1 &   # detach: hook must not wait on the build
+  ( cd "$r" && { echo "[$(date '+%F %T')] $1"; sh -c "$1"; } >> "$log" 2>&1; rmdir "$lock" ) </dev/null >/dev/null 2>&1 &   # detach: hook must not wait on the build
 }
 
+init=""
 if [ ! -d "$r/.codegraph" ]; then
   [ "$mode" = start ] && echo "No .codegraph/ in $r: building CodeGraph index in background (log: $log)."
-  build codegraph '"$TO" 1800 "$CG" init -y "$r"'
+  init='"$TO" 1800 "$CG" init -y "$r"'
 fi
-
 if [ ! -d "$r/graphify-out" ]; then
   [ "$mode" = start ] && echo "No graphify-out/ in $r: building graphify graph in background (log: $log)."
-  build graphify '"$TO" 1800 "$GF" update "$r"'
+  build "${init:+$init; }\"\$TO\" 1800 \"\$GF\" update \"\$r\""   # both missing: one job under the one lock
   exit $?
 fi
 [ "$mode" = start ] && echo "graphify-out/ present: read $r/graphify-out/GRAPH_REPORT.md (or wiki/index.md) before architecture/spec/doc questions."
-[ -d "$r/.codegraph" ] || exit 0
+[ -n "$init" ] && { build "$init"; exit $?; }
 
 # Tree signature: HEAD plus every changed/untracked path with its mtime and size, so a second
 # edit to an already-modified file still counts. Unchanged since the last refresh: nothing to do.
+# One python process stats every path (a stat process per file took 78 s for 3000 untracked files).
+STATPY='import os, sys
+for e in sys.stdin.buffer.read().split(b"\0"):
+    try:
+        s = os.lstat(os.path.join(sys.argv[1].encode(), e[3:])); m = "%d %d" % (s.st_mtime, s.st_size)
+    except OSError:
+        m = "-"
+    print(e.decode("utf-8", "replace"), m)'
 sig=$( { git -C "$r" rev-parse HEAD 2>/dev/null
-         git -C "$r" status --porcelain -uall 2>/dev/null | while IFS= read -r line; do
-           echo "$line"; { stat -c '%Y %s' "$r/${line#???}" || stat -f '%m %z' "$r/${line#???}"; } 2>/dev/null   # GNU (Git Bash) first; BSD rejects -c
-         done; } | "$SHA" | cut -c1-40 )
+         git -C "$r" status --porcelain -uall -z 2>/dev/null | "$PY" -c "$STATPY" "$r"; } | "$SHA" | cut -c1-40 )
 [ "$sig" = "$(cat "$stamp" 2>/dev/null)" ] && exit 0
 
 # The stamp is written only after both refreshes succeed, so a failed run is retried next time.
 # Paths reach the command through the environment, so a quote in a repo path can't break it.
-build refresh '"$TO" 600 "$CG" sync "$r" && "$TO" 1800 "$GF" update "$r" && echo "$sig" > "$stamp"'
+build '"$TO" 600 "$CG" sync "$r" && "$TO" 1800 "$GF" update "$r" && echo "$sig" > "$stamp"'
 exit $?

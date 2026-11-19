@@ -1,7 +1,7 @@
 // model-pilot judge: the rubric, the reply parser, the rules fallback, and what the
 // person named in the prompt. Pure functions.
 import type { Effort, JudgeInput, Tier, Verdict } from './policy'
-import { EFFORTS, TIERS } from './policy'
+import { EFFORTS, rulesFloor, TIERS } from './policy'
 
 /** What each tier is for; the Haiku rubric and the Jev question both read it. */
 export const TIER_GUIDE: Record<Tier, string> = {
@@ -136,6 +136,14 @@ export function rulesVerdict(i: JudgeInput): Verdict {
   return make('sonnet', 'rules: unclassified, defaulting up')
 }
 
+/** The turn's verdict when no judge answered: the rules, coding kept off haiku, never below the menu but for a lookup. */
+export function rulesFallback(i: JudgeInput, menuTier: Tier, fail: string): Verdict {
+  const rules = floorCoding(rulesVerdict(i), i.prompt)
+  const tier = rulesFloor(rules.tier, menuTier)
+  const why = fail === 'privacy' ? 'privacy mode' : `judge ${fail}`
+  return { ...rules, tier, reason: tier === rules.tier ? `${rules.reason} (${why})` : `${why}: menu model kept` }
+}
+
 // ------------------------------------------------- follow-ups and overrides
 
 const FOLLOW_UP =
@@ -144,18 +152,44 @@ const FOLLOW_UP =
 /** A reply that only continues the work before it: it inherits that work's tier. */
 export function isFollowUp(text: string): boolean {
   const t = text.trim()
-  // '' is a continued turn; a leading tag is the engine's own delivery (a background task's report).
-  return t === '' || /^<[a-z][\w-]*[\s>]/.test(t) || (t.length <= 40 && FOLLOW_UP.test(t))
+  // '' is a continued turn; a leading engine tag is the engine's own delivery (a background task's report).
+  return t === '' || ENGINE_TAG.test(t) || (t.length <= 40 && FOLLOW_UP.test(t))
 }
+const ENGINE_TAG = /^<(?:task-notification|cross-session-message|ci-monitor-event|side-sessions-event|command-[\w-]+|system-reminder)[\s>]/
 
 const TIER_WORD = '(haiku|sonnet|opus|fable)'
-// "use opus", "with sonnet", "switch to haiku for this", "opus: ..." at the start. The
+// "use opus", "switch to haiku for this", "answer with sonnet", "opus: ..." at the start. The
 // lookahead keeps "use haiku structure" and "the opus codec" from counting as a choice.
 const NAMED_TIER = new RegExp(
-  `(?:^|[\\s(])(?:use|using|with|via|switch to|run (?:this |it )?on|answer (?:this )?(?:with|on)|on)\\s+(?:the\\s+)?(?:claude[- ])?${TIER_WORD}(?:[- ]?\\d[\\d.]*)?(?:\\s+model)?(?=\\s*(?:$|[.,;:!?)]|for\\b|to\\b|at\\b|with\\b|and\\b|please\\b|here\\b|effort\\b|on\\b))`,
-  'i',
+  `(?:^|[\\s(])(use|using|switch to|run (?:this |it )?on|answer (?:this )?(?:with|on)|with|via|on)\\s+(?:the\\s+)?(?:claude[- ])?${TIER_WORD}(?:[- ]?\\d[\\d.]*)?(?:\\s+model)?(?=\\s*(?:$|[.,;:!?)]|for\\b|to\\b|at\\b|with\\b|and\\b|please\\b|here\\b|effort\\b|on\\b))`,
+  'gi',
 )
 const LEADING_TIER = new RegExp(`^\\s*@?${TIER_WORD}\\s*[:,]\\s`, 'i')
+const ANY_TIER = new RegExp(`\\b${TIER_WORD}\\b`, 'gi')
+const NEGATED = /\b(?:don['’]?t|do not|never|not|no|avoid|stop|instead of|rather than)(?:\s+ever)?\s*$/i
+
+/**
+ * The tier one part of a prompt directs, adding every negated tier to `negated`. A bare
+ * "with", "via" or "on" counts only in a statement naming one tier: "compare haiku with
+ * sonnet" and "is the limit bigger on fable?" are not choices.
+ */
+function namedTier(part: string, negated: Set<string>): string | undefined {
+  const lead = LEADING_TIER.exec(part)?.[1]
+  if (lead) return lead.toLowerCase()
+  const tiers = new Set([...part.matchAll(ANY_TIER)].map(m => (m[1] ?? '').toLowerCase()))
+  let pick: string | undefined
+  for (const m of part.matchAll(NAMED_TIER)) {
+    const tier = (m[2] ?? '').toLowerCase()
+    if (NEGATED.test(part.slice(0, m.index))) {
+      negated.add(tier)
+      continue
+    }
+    const isBare = /^(?:with|via|on)$/i.test(m[1] ?? '')
+    if (isBare && (tiers.size > 1 || /^[^.!\n]*\?/.test(part.slice((m.index ?? 0) + m[0].length)))) continue
+    pick ??= tier
+  }
+  return pick
+}
 const NAMED_EFFORT =
   /(?:\b(low|medium|high|xhigh|max)\s+effort\b|\beffort\s*(?:[:=]|at|to|of|level)?\s*(low|medium|high|xhigh|max)\b)/i
 
@@ -164,12 +198,14 @@ export function explicitChoice(text: string): { tier?: Tier; effort?: Effort | '
   const head = text.slice(0, 600)
   const tail = text.length > 600 ? text.slice(-300) : ''
   const out: { tier?: Tier; effort?: Effort | 'max' } = {}
+  const negated = new Set<string>()
   for (const part of [head, tail]) {
-    const m = LEADING_TIER.exec(part) ?? NAMED_TIER.exec(part)
-    if (m?.[1] && !out.tier) out.tier = m[1].toLowerCase() as Tier
+    const tier = namedTier(part, negated)
+    if (tier && !out.tier) out.tier = tier as Tier
     const e = NAMED_EFFORT.exec(part)
     const level = (e?.[1] ?? e?.[2])?.toLowerCase()
     if (level && !out.effort) out.effort = level as Effort | 'max'
   }
+  if (out.tier && negated.has(out.tier)) delete out.tier // "do not use fable" never picks fable
   return out
 }
