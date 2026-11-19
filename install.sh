@@ -218,7 +218,7 @@ if has caveman && [ -z "$CAVEMODE" ]; then
   fi
 fi
 if has session-title; then
-  case "$TITLE_RECHECK" in ''|*[!0-9]*|0) [ -z "$TITLE_RECHECK" ] || info "Title check '$TITLE_RECHECK' is not a number of prompts: using 5"; TITLE_RECHECK=5 ;; esac
+  case "$TITLE_RECHECK" in ''|*[!0-9]*|0*) [ -z "$TITLE_RECHECK" ] || info "Title check '$TITLE_RECHECK' is not a number of prompts: using 5"; TITLE_RECHECK=5 ;; esac
   if [ -z "$TITLE_SPELLING" ]; then
     TITLE_SPELLING=au
     if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
@@ -246,9 +246,10 @@ for id in rtk safety indexes routing cognee jev measure guard sandbox verify ses
   say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules, done checks and session titles only work through them. They are added to"
   say "~/.claude/settings.json: backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised. Cognee's local-only setting (COGNEE_BACKEND=local) goes in only through this step: say no and Cognee uses its own default backend, which this kit has not checked, so add that env key yourself."
   if xcode-select -p >/dev/null 2>&1; then  # a preview, before anything is asked or written
-    PREVIEW=$(python3 "$KIT/lib/merge_settings.py" --dry-run "$CL/settings.json" "$KIT/lib/hooks.json" $(printf '%s' "$SELECTED" | sed 's/ jev / /') 2>/dev/null)
+    PREVIEW=$(python3 "$KIT/lib/merge_settings.py" --dry-run "$CL/settings.json" "$KIT/lib/hooks.json" $(printf '%s' "$SELECTED" | sed 's/ jev / /') 2>/dev/null) || PREVIEW_FAILED=1
     say ""
-    if [ -n "$PREVIEW" ]; then say "This is what would change in settings.json (Jev's background hooks are asked about separately):"; printf '%s\n' "$PREVIEW"
+    if [ -n "${PREVIEW_FAILED:-}" ]; then say "Could not read ~/.claude/settings.json (is it valid JSON?), so no preview: adding hooks will fail until it is fixed."
+    elif [ -n "$PREVIEW" ]; then say "This is what would change in settings.json (Jev's background hooks are asked about separately):"; printf '%s\n' "$PREVIEW"
     else say "settings.json already has everything: nothing would change."; fi
   fi
   ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
@@ -355,9 +356,12 @@ say ""; say "Installing:$SELECTED"
 # Prerequisites. Each missing one is explained, and offered to be installed for you (in order: Apple tools,
 # Homebrew, then the rest). Nothing of the kit itself is installed until all of them are present.
 # Override the install commands with KIT_CMD_<NAME> (used by the tests).
+. "$KIT/lib/pins.sh"  # every download below is pinned to a version or a checksummed commit
+# The overrides run whatever they hold, so only the tests may use them (KIT_TESTING=1).
+[ "${KIT_TESTING:-}" = 1 ] || unset KIT_CMD_CLT KIT_CMD_BREW KIT_CMD_CLAUDE KIT_CMD_NODE KIT_CMD_UV KIT_RTK_METHOD
 CMD_CLT=${KIT_CMD_CLT:-"xcode-select --install"}
-CMD_BREW=${KIT_CMD_BREW:-'/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'}
-CMD_CLAUDE=${KIT_CMD_CLAUDE:-"curl -fsSL https://claude.ai/install.sh | bash"}
+CMD_BREW=${KIT_CMD_BREW:-"bash \"$KIT/lib/run-pinned.sh\" brew /bin/bash"}
+CMD_CLAUDE=${KIT_CMD_CLAUDE:-"bash \"$KIT/lib/run-pinned.sh\" claude bash"}
 CMD_NODE=${KIT_CMD_NODE:-"brew install node"}
 CMD_UV=${KIT_CMD_UV:-"brew install uv"}
 uses_claude() { for id in caveman adhd ponytail context-mode codegraph supermemory cognee remember model-pilot model-badge deliberation; do has $id && return 0; done; return 1; }
@@ -419,6 +423,18 @@ mkdir -p "$CL/hooks" "$CL/agents" "$CL/guides" "$CL/rules" "$BIN" "$CL/kit"; exp
 # copy_file SRC DST exec|data replace|keep
 #   replace: differing DST is backed up to DST.bak-kit-<time>, then replaced (kit-owned scripts)
 #   keep:    differing DST is left alone; the kit's copy goes to DST.kit-new (your own docs)
+schedule_job() { # schedule_job LABEL PLIST ALREADY_MSG DONE_MSG: install $PLIST.tmp, then make sure launchd really has the job loaded
+  local lbl=$1 pl=$2 real=0 uid; uid=$(id -u)
+  [ "$HOME" = "$(eval echo "~$(id -un)")" ] && real=1  # launchd is per user, not per HOME: never load a test HOME's job
+  if cmp -s "$pl.tmp" "$pl"; then
+    rm -f "$pl.tmp"
+    if [ "$real" = 0 ] || launchctl print "gui/$uid/$lbl" >/dev/null 2>&1; then ok "$3"; return; fi
+  else mv "$pl.tmp" "$pl"; fi
+  [ "$real" = 1 ] || { info "test HOME: $lbl written to $pl, not loaded"; return; }
+  launchctl bootout "gui/$uid/$lbl" >/dev/null 2>&1
+  launchctl bootstrap "gui/$uid" "$pl" >/dev/null 2>&1
+  if launchctl print "gui/$uid/$lbl" >/dev/null 2>&1; then ok "$4"; else fail "$lbl is not loaded (try: launchctl bootstrap gui/$uid $pl)"; fi
+}
 copy_file() {
   local src=$1 dst=$2 kind=$3 pol=$4
   if [ -f "$dst" ] && cmp -s "$src" "$dst"; then ok "unchanged $(short "$dst")"; return; fi
@@ -474,7 +490,9 @@ PY
   # the render (tools such as graphify append their own section). Otherwise copy_file keeps yours and writes .kit-new.
   prev="$CL/kit/CLAUDE.rendered.md"
   n=$(wc -c < "$rendered" | tr -d ' ')
-  if [ -f "$CL/CLAUDE.md" ] && head -c "$n" "$CL/CLAUDE.md" | cmp -s - "$rendered"; then
+  if [ "$n" = 0 ]; then
+    fail "could not render CLAUDE.md from the template: yours is left as it is"  # an empty render would match any file next run
+  elif [ -f "$CL/CLAUDE.md" ] && head -c "$n" "$CL/CLAUDE.md" | cmp -s - "$rendered"; then
     ok "unchanged ~/.claude/CLAUDE.md"; cp "$rendered" "$prev"
   elif [ -f "$CL/CLAUDE.md" ] && [ -f "$prev" ] && head -c "$(wc -c < "$prev" | tr -d ' ')" "$CL/CLAUDE.md" | cmp -s - "$prev"; then
     # Untouched since the kit wrote it (tools may have appended below): swap in the new render, keep what follows.
@@ -513,23 +531,23 @@ if has rtk; then
     brew install rtk >/dev/null 2>&1 && ok "rtk (Homebrew)" || fail "brew install rtk (run it yourself to see why)"
   else
     # Upstream's documented installer (github.com/rtk-ai/rtk). RTK_EDITION=oss gives the Apache-2.0-only build.
-    info "no Homebrew: running RTK's own install script (github.com/rtk-ai/rtk, install.sh on its master branch)"
-    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
-      && ok "rtk (install script)" || fail "rtk install script"
+    info "no Homebrew: running RTK's own install script (github.com/rtk-ai/rtk), pinned to one commit and checked against its sha256"
+    bash "$KIT/lib/run-pinned.sh" rtk sh \
+      && ok "rtk (install script)" || fail "rtk install script (a checksum mismatch means upstream changed it: see lib/pins.sh)"
   fi
   # The hook gets rtk's absolute path: Claude Code's hook PATH may not include ~/.local/bin or Homebrew.
   KIT_RTK=$(command -v rtk 2>/dev/null || { [ -x "$BIN/rtk" ] && echo "$BIN/rtk"; } || echo rtk); export KIT_RTK
 fi
 if has codegraph; then
   if [ -x "$BIN/codegraph" ]; then ok "codegraph already installed"
-  else npm install -g --prefix "$HOME/.local" @colbymchenry/codegraph >/dev/null 2>&1 && ok "codegraph (npm)" || fail "npm install @colbymchenry/codegraph"; fi
+  else npm install -g --prefix "$HOME/.local" "$PIN_CODEGRAPH" >/dev/null 2>&1 && ok "codegraph (npm, $PIN_CODEGRAPH)" || fail "npm install $PIN_CODEGRAPH"; fi
   if claude mcp get codegraph >/dev/null 2>&1; then ok "codegraph MCP server already registered"
   else claude mcp add -s user codegraph -- "$BIN/codegraph" serve --mcp >/dev/null 2>&1 && ok "codegraph MCP server registered" || fail "claude mcp add codegraph"; fi
 fi
 if has graphify; then
   if [ -x "$BIN/graphify" ]; then ok "graphify already installed"
-  elif command -v uv >/dev/null 2>&1; then uv tool install graphifyy >/dev/null 2>&1 && ok "graphify (uv)" || fail "uv tool install graphifyy"
-  else pipx install graphifyy >/dev/null 2>&1 && ok "graphify (pipx)" || fail "pipx install graphifyy"; fi
+  elif command -v uv >/dev/null 2>&1; then uv tool install "$PIN_GRAPHIFY" >/dev/null 2>&1 && ok "graphify (uv, $PIN_GRAPHIFY)" || fail "uv tool install $PIN_GRAPHIFY"
+  else pipx install "$PIN_GRAPHIFY" >/dev/null 2>&1 && ok "graphify (pipx, $PIN_GRAPHIFY)" || fail "pipx install $PIN_GRAPHIFY"; fi
   if [ -f "$CL/skills/graphify/SKILL.md" ]; then ok "graphify skill already installed"
   elif [ -x "$BIN/graphify" ]; then "$BIN/graphify" install --platform claude >/dev/null 2>&1 && ok "graphify skill" || fail "graphify install --platform claude"; fi
 fi
@@ -541,7 +559,7 @@ if has safety; then
 fi
 if has verify; then
   copy_file "$KIT/files/hooks/verify-done.py" "$CL/hooks/verify-done.py" exec replace
-  todo "Done checks: in each project you want checked, add an executable .claude/verify (e.g. '#!/bin/sh' then 'npm test --silent'); optionally .claude/lint, which gets the edited file's path."
+  todo "Done checks: in each project you want checked, add an executable .claude/verify (e.g. '#!/bin/sh' then 'npm test --silent'); optionally .claude/lint, which gets the edited file's path. Then allow that project once: python3 ~/.claude/hooks/verify-done.py allow <project folder> (checks never run in a project you did not allow)."
 fi
 if has session-title; then
   copy_file "$KIT/files/hooks/session-title.py" "$CL/hooks/session-title.py" exec replace
@@ -587,15 +605,7 @@ if has measure; then
   <key>StandardErrorPath</key><string>$(xml "$CL")/cache/token-compare/reports/launchd.log</string>
 </dict></plist>
 PLIST
-  if cmp -s "$PL.tmp" "$PL"; then rm -f "$PL.tmp"; ok "token report job already scheduled (daily check, 09:00)"
-  else
-    mv "$PL.tmp" "$PL"
-    # launchd is per user, not per HOME: only load it for the real home, never for a test HOME.
-    if [ "$HOME" = "$(eval echo "~$(id -un)")" ]; then
-      launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
-      launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "token report job scheduled (daily check at 09:00; writes a report when your period ends)" || fail "launchctl bootstrap $PL"
-    else info "test HOME: report job written to $PL, not loaded"; fi
-  fi
+  schedule_job "$LBL" "$PL" "token report job already scheduled (daily check, 09:00)" "token report job scheduled (daily check at 09:00; writes a report when your period ends)"
   # The weekly scorecard is its own job: it runs whatever was chosen for the token report.
   LBL=com.claude-setup-kit.setup-monitor; PL="$LA/$LBL.plist"
   cat > "$PL.tmp" <<PLIST
@@ -609,14 +619,7 @@ PLIST
   <key>StandardErrorPath</key><string>$(xml "$CL")/monitor/launchd.log</string>
 </dict></plist>
 PLIST
-  if cmp -s "$PL.tmp" "$PL"; then rm -f "$PL.tmp"; ok "setup monitor already scheduled (Mondays 08:15)"
-  else
-    mv "$PL.tmp" "$PL"
-    if [ "$HOME" = "$(eval echo "~$(id -un)")" ]; then
-      launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
-      launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "setup monitor scheduled (Mondays 08:15: scorecard, trend, house-rule candidates)" || fail "launchctl bootstrap $PL"
-    else info "test HOME: setup monitor job written to $PL, not loaded"; fi
-  fi
+  schedule_job "$LBL" "$PL" "setup monitor already scheduled (Mondays 08:15)" "setup monitor scheduled (Mondays 08:15: scorecard, trend, house-rule candidates)"
 fi
 
 # ---------------------------------------------------------------- memory
@@ -685,6 +688,27 @@ PY
   todo "Model pilot: after the restart, type /pilot status in Claude Code. The row above the prompt shows each pick and what really ran; /pilot cost compares a helper agent, doing it in place and a fresh chat."
 fi
 
+# Jev consent lives in policy.json: sites_off lists what the user did not agree to, sites_asked what was ever asked.
+# "ask" records this run's answers; "keep" (any run without the Jev part) turns off every site never asked about,
+# so an upgrade that brings a new Jev caller (or a policy from an older kit) never sends without consent.
+record_jev_consent() {
+  python3 - "$1" "$CL/jev/policy.json" "$KIT/files/jev/policy.json" "$JEV_SHARE$([ "${JEV_HOOKS:-no}" = yes ] && echo ' hooks')" <<'PY'
+import json, os, sys
+mode, path, default, share = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].split()
+d = json.load(open(path)) if os.path.exists(path) else json.load(open(default))
+pairs = (("house-rules-recall", "recall"), ("house-rules-mine", "mine"), ("codegraph-gate", "code"), ("model-pilot", "pilot"),
+         ("jev-gate", "hooks"))
+if mode == "ask":
+    d["sites_off"] = [s for s, w in pairs if w not in share]
+    d["sites_asked"] = [s for s, _ in pairs]
+else:
+    asked = d.get("sites_asked", [])
+    d["sites_off"] = sorted(set(d.get("sites_off", [])) | {s for s, _ in pairs if s not in asked})
+os.makedirs(os.path.dirname(path), exist_ok=True)
+json.dump(d, open(path + ".tmp", "w"), indent=2); os.replace(path + ".tmp", path)
+PY
+}
+
 # ---------------------------------------------------------------- judge
 if has jev; then
   for f in jev jev-gate; do copy_file "$KIT/files/bin/$f" "$BIN/$f" exec replace; done
@@ -692,18 +716,10 @@ if has jev; then
   printf '%s\n' "${JEV_HOOKS:-no}" > "$CL/kit/jev-hooks"
   # The policy is yours after the first install (thresholds, skip_paths); only sites_off is set here, from your answers.
   mkdir -p "$CL/jev"; [ -f "$CL/jev/policy.json" ] || copy_file "$KIT/files/jev/policy.json" "$CL/jev/policy.json" data keep
-  # Parts the user did not agree to: listed in the policy, so jev_lib never sends for them.
-  python3 - "$CL/jev/policy.json" "$KIT/files/jev/policy.json" "$JEV_SHARE$([ "$JEV_HOOKS" = yes ] && echo ' hooks')" <<'PY' && ok "Jev may send for: ${JEV_SHARE:- nothing}" || fail "could not record the Jev choices in ~/.claude/jev/policy.json"
-import json, os, sys
-path, default, share = sys.argv[1], sys.argv[2], sys.argv[3].split()
-d = json.load(open(path)) if os.path.exists(path) else json.load(open(default))
-pairs = (("house-rules-recall", "recall"), ("house-rules-mine", "mine"), ("codegraph-gate", "code"), ("model-pilot", "pilot"),
-         ("jev-gate", "hooks"))
-d["sites_off"] = [s for s, w in pairs if w not in share]
-os.makedirs(os.path.dirname(path), exist_ok=True)
-json.dump(d, open(path + ".tmp", "w"), indent=2); os.replace(path + ".tmp", path)
-PY
+  record_jev_consent ask && ok "Jev may send for: ${JEV_SHARE:- nothing}" || fail "could not record the Jev choices in ~/.claude/jev/policy.json"
   todo "Jev: store your TypeSafe key in the macOS Keychain: security add-generic-password -s typesafe-api-key -a \"\$USER\" -T '' -w   (it prompts for the key; nothing lands in a file; -T '' makes macOS ask before any program reads it)."
+elif [ -f "$CL/jev/policy.json" ]; then
+  record_jev_consent keep || fail "could not check the Jev choices in ~/.claude/jev/policy.json"
 fi
 if has mjudge; then
   copy_file "$KIT/files/bin/mjudge" "$BIN/mjudge" exec replace
@@ -719,7 +735,7 @@ fi
 if has grill-me; then
   # Fetched from the author's repo, never copied into this kit. Skills already there are left as they are.
   if [ -e "$CL/skills/grill-me" ] && [ -e "$CL/skills/grilling" ] && [ -e "$CL/skills/grill-with-docs" ]; then ok "Grill Me already installed"
-  elif (cd "$CL" && npx --yes skills add mattpocock/skills -g -a claude-code -s grill-me -s grilling -s grill-with-docs -y) >/dev/null 2>&1; then ok "Grill Me (grill-me, grilling, grill-with-docs from mattpocock/skills)"
+  elif (cd "$CL" && npx --yes "$PIN_SKILLS" add mattpocock/skills -g -a claude-code -s grill-me -s grilling -s grill-with-docs -y) >/dev/null 2>&1; then ok "Grill Me (grill-me, grilling, grill-with-docs from mattpocock/skills)"
   else fail "Grill Me (run: npx skills add mattpocock/skills -g -a claude-code -s grill-me -s grilling -s grill-with-docs)"; fi
   todo "Grill Me: type /grill-me before you build something; /grill-with-docs also writes down decisions and terms."
 fi

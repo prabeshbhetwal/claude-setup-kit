@@ -82,7 +82,48 @@ def house_rules_checks(d):
     assert len(T.note(hit)) < 600
     assert "<path>" in T.redact("see /srv/me/app/src/Hero.tsx now") and "<email>" in T.redact("mail a" + "@b.com")  # split so the repo scan sees no address
     assert T.week_markers(0, time.time() + 1, 10)["P1"] == 0.0
+    store_safety_checks(d, T)
     jev_child_checks(d, T)
+
+
+def store_safety_checks(d, T):
+    """A malformed store file stops the CLI and is never overwritten; recall still fails open; approve is once, ids never reused."""
+    import importlib.util
+    import subprocess
+    import sys
+    spec = importlib.util.spec_from_file_location("hr_cli", os.path.join(os.path.dirname(os.path.abspath(T.__file__)), "house-rules.py"))
+    H = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(H)
+    for name in ("RULES", "CANDS"):
+        setattr(T, name, os.path.join(d, name + ".json"))
+    try:
+        assert T.load(T.RULES) == [], "a missing file is an empty store"
+        for bad in ("{not json", '{"a": 1}'):
+            open(T.RULES, "w").write(bad)
+            try:
+                T.load(T.RULES)
+                raise AssertionError("a malformed store must raise")
+            except ValueError:
+                pass
+            assert T.load(T.RULES, strict=False) == [] and T.recall("redesign the landing page hero please now", None, use_jev=False) == []
+        open(T.CANDS, "w").write(json.dumps([{"id": "c1", "rule": "Keep it calm.", "keywords": [], "evidence": [], "status": "pending"}]))
+        try:
+            H.decide("c1", "approved")
+            raise AssertionError("approve over a malformed rules file must stop")
+        except ValueError:
+            pass
+        assert open(T.RULES).read() == '{"a": 1}' and json.load(open(T.CANDS))[0]["status"] == "pending", "files must be left untouched"
+        open(T.RULES, "w").write(json.dumps([{"id": "r1", "rule": "a", "status": "active"}, {"id": "r3", "rule": "b", "status": "active"}]))  # r2 trimmed by hand
+        H.decide("c1", "approved")
+        assert [r["id"] for r in T.load(T.RULES)] == ["r1", "r3", "r4"], T.load(T.RULES)
+        try:
+            H.decide("c1", "approved")
+            raise AssertionError("a second approve must be refused")
+        except SystemExit:
+            pass
+        assert len(T.load(T.RULES)) == 3
+    finally:
+        importlib.reload(T)  # back to the shared store paths for the checks that follow
 
 
 FAKE_JEV = """import concurrent.futures, json, time

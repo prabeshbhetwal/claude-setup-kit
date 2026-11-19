@@ -70,7 +70,8 @@ export function parseJudgeReply(text: string): Verdict | undefined {
   if (!tier) return undefined
   const asked = String(o.effort).toLowerCase().trim()
   const effort = asked === 'max' ? 'xhigh' : (EFFORTS.find(e => e === asked) ?? defaultEffort(tier))
-  const c = typeof o.confidence === 'number' && Number.isFinite(o.confidence) ? o.confidence : 0.5
+  const n = typeof o.confidence === 'string' && o.confidence.trim() !== '' ? Number(o.confidence) : o.confidence
+  const c = typeof n === 'number' && Number.isFinite(n) ? n : 0.5
   return {
     tier,
     effort,
@@ -177,8 +178,6 @@ const NEGATED = /\b(?:don['’]?t|do not|never|not|no|avoid|stop|instead of|rath
 function namedTier(part: string, negated: Set<string>): string | undefined {
   const lead = LEADING_TIER.exec(part)?.[1]
   if (lead) return lead.toLowerCase()
-  // Tiers named positively: a negated alternative ("with Opus, not Fable") is not a comparison.
-  const tiers = new Set([...part.matchAll(ANY_TIER)].filter(m => !NEGATED.test(part.slice(0, m.index))).map(m => (m[1] ?? '').toLowerCase()))
   let pick: string | undefined
   for (const m of part.matchAll(NAMED_TIER)) {
     const tier = (m[2] ?? '').toLowerCase()
@@ -200,7 +199,9 @@ const NAMED_EFFORT =
   /(?:\b(low|medium|high|xhigh|max)\s+effort\b|\beffort\s*(?:[:=]|at|to|of|level)?\s*(low|medium|high|xhigh|max)\b)/i
 
 /** A model or effort the person named in the prompt itself. */
-export function explicitChoice(text: string): { tier?: Tier; effort?: Effort | 'max' } {
+export function explicitChoice(raw: string): { tier?: Tier; effort?: Effort | 'max' } {
+  // Quoted, fenced or blockquoted text is someone else's words, not the person's choice.
+  const text = raw.replace(/```[\s\S]*?```|"[^"\n]*"|“[^”\n]*”|^>.*$/gm, ' ')
   const head = text.slice(0, 600)
   const tail = text.length > 600 ? text.slice(-300) : ''
   const out: { tier?: Tier; effort?: Effort | 'max' } = {}
@@ -209,7 +210,8 @@ export function explicitChoice(text: string): { tier?: Tier; effort?: Effort | '
     const tier = namedTier(part, negated)
     if (tier && !out.tier) out.tier = tier as Tier
     const e = NAMED_EFFORT.exec(part)
-    const level = (e?.[1] ?? e?.[2])?.toLowerCase()
+    const negEffort = e && /\b(?:not|no|never|avoid|don['’]?t)\b(?:\s+\w+){0,2}\s*$/i.test(part.slice(0, e.index))
+    const level = negEffort ? undefined : (e?.[1] ?? e?.[2])?.toLowerCase()
     if (level && !out.effort) out.effort = level as Effort | 'max'
   }
   if (out.tier && negated.has(out.tier)) delete out.tier // "do not use fable" never picks fable

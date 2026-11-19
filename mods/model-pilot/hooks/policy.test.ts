@@ -199,6 +199,7 @@ test('sub-agents: unsure goes up; an agent file that names a model is detected',
   expect(agentTier(verdict('sonnet'), 'rules', 'opus', true, false)).toBe('opus')
   expect(agentFileNamesModel('---\nname: x\nmodel: opus\n---\nbody')).toBe(true)
   expect(agentFileNamesModel('---\nname: x\nmodel: "claude-haiku-5-5"\n---\n')).toBe(true)
+  expect(agentFileNamesModel('﻿---\nmodel: opus\n---\n')).toBe(true) // a byte-order mark still names the model
   expect(agentFileNamesModel('---\nname: x\nmodel: inherit\n---\n')).toBe(false)
   expect(agentFileNamesModel('---\nname: x\ntools: Read\n---\nmodel: opus in the body')).toBe(false)
   expect(agentFileNamesModel('no frontmatter')).toBe(false)

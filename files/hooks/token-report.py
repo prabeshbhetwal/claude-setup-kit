@@ -215,7 +215,17 @@ def summary(title, tot, est, rtk):
     return f"{title}: used {TC.fm(tot['tokens'] + tot['output'])}, saved {TC.fm(s)}"
 
 
+def notify_argv(msg, path):
+    """osascript argv: the text goes in as argv, never into the script source, so a quote in it (or in HOME) cannot break or inject."""
+    sub = "Full report: " + path.replace(os.path.expanduser("~"), "~")
+    return ["osascript", "-e", "on run argv", "-e", 'display notification (item 1 of argv) with title "Claude tokens" subtitle (item 2 of argv)',
+            "-e", "end run", msg, sub]
+
+
 def selftest():
+    bad = '/h/a"b\\c & do shell script "x"/r.md'
+    argv = notify_argv('50% "used"', bad)
+    assert "".join(argv[:7]).count("do shell script") == 0 and bad not in "".join(argv[:7]) and argv[-1].endswith(bad), argv
     tot = defaultdict(int, tokens=900, output=100, requests=10, main=8, sub=2)
     tools = T.selftest()
     led = {"turns": 4, "used": 800, "rtk_saved": 120, "ctx_saved_bytes": 4000, "pilot_saved_usd": 0.5}
@@ -336,5 +346,4 @@ if __name__ == "__main__":
     open(path, "w").write(text + "\n")
     print(text)
     if "--notify" in argv and sys.platform == "darwin":  # osascript notification is macOS-only
-        msg = summary(title, tot, est, rtk).replace('"', "'")
-        subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Claude tokens" subtitle "Full report: {path.replace(os.path.expanduser("~"), "~")}"'], check=False)
+        subprocess.run(notify_argv(summary(title, tot, est, rtk), path), check=False)

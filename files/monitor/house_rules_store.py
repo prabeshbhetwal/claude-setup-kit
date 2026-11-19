@@ -51,11 +51,20 @@ def redact(text):
     return text[:200]
 
 
-def load(path):
+def load(path, strict=True):
+    """[] when the file does not exist yet. Any other failure raises ValueError, so a save can never overwrite a file
+    that merely failed to parse (it would wipe every rule). Readers that must fail open pass strict=False."""
     try:
-        return json.load(open(path))
-    except (OSError, ValueError):
+        rows = json.load(open(path))
+        if not isinstance(rows, list):
+            raise ValueError("expected a JSON list")
+        return rows
+    except FileNotFoundError:
         return []
+    except (OSError, ValueError) as e:
+        if not strict:
+            return []
+        raise ValueError(f"{path} is unreadable ({e}); fix or restore it (the store is a git repo), nothing was changed") from e
 
 
 def save(path, rows, msg=None):
@@ -128,7 +137,7 @@ def week_markers(a, b, turns):
     """P1-P5 for the scorecard, for the week [a, b) (epoch s)."""
     rec = [json.loads(x) for x in open(RECALL)] if os.path.exists(RECALL) else []
     wk = [r for r in rec if a <= r["ts"] < b]
-    rules, cands = load(RULES), load(CANDS)
+    rules, cands = load(RULES, False), load(CANDS, False)
     active = [r for r in rules if r.get("status", "active") == "active"]
     used = {i for r in rec if b - 28 * 86400 <= r["ts"] < b for i in r["ids"]}
     in_week = lambda x, k: a <= x.get(k, 0) < b
@@ -183,7 +192,7 @@ def recall(prompt, rules=None, use_jev=True, cwd=""):
     if len(p.split()) < 4 or p.startswith(("/", "<")):
         return []
     p = p[:800]  # long prompts are mostly pasted material; their opening says what the task is
-    hits = rank(p, load(RULES) if rules is None else rules)
+    hits = rank(p, load(RULES, False) if rules is None else rules)
     ui = is_ui(p)
     hits = [r for r in hits if ui or not set(r.get("tags", [])) <= {"layout", "colour", "type", "motion", "copy", "a11y", "ui"}]
     if hits and use_jev:  # BM25 alone fires on loose word overlap; Jev confirms every hit (only ~10% of prompts get here)

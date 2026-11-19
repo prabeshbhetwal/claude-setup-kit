@@ -122,7 +122,9 @@ if has measure; then
   elif launchctl print "gui/$(id -u)/com.claude-setup-kit.token-report" >/dev/null 2>&1; then pass "token report: $per (daily check, 09:00)"
   else warn "token report job exists but is not loaded: launchctl bootstrap gui/$(id -u) $PL"; fi
   PM="$HOME/Library/LaunchAgents/com.claude-setup-kit.setup-monitor.plist"
-  [ -f "$PM" ] && pass "weekly scorecard job (Mondays 08:15)" || fail "weekly scorecard not scheduled ($PM missing): re-run install.sh"
+  if [ ! -f "$PM" ]; then fail "weekly scorecard not scheduled ($PM missing): re-run install.sh"
+  elif launchctl print "gui/$(id -u)/com.claude-setup-kit.setup-monitor" >/dev/null 2>&1; then pass "weekly scorecard job (Mondays 08:15)"
+  else warn "weekly scorecard job exists but is not loaded: launchctl bootstrap gui/$(id -u) $PM"; fi
   hook_on UserPromptSubmit "house-rules-recall.py" "house rules recall"
 fi
 if has rules; then

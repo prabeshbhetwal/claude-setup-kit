@@ -94,12 +94,13 @@ for cmd in (["bash", "-n", "install.sh"], ["bash", "-n", "doctor.sh"], ["bash", 
     rc, out = sh(cmd, "/nonexistent")
     if rc:
         fail(" ".join(cmd) + ": " + out[:200])
+PY39 = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable  # Apple's 3.9: what users have
 for root, _, files in os.walk(KIT):
-    if any(x in root for x in (".git", "graphify-out", ".codegraph", "worktrees", "node_modules")):
-        continue
+    if {".git", "graphify-out", ".codegraph", "worktrees", "node_modules"} & set(os.path.relpath(root, KIT).split(os.sep)):
+        continue  # parts below the kit only: a kit inside .claude/worktrees/ must still be compiled
     for f in files:
         if f.endswith(".py"):
-            rc, out = sh([sys.executable, "-m", "py_compile", os.path.join(root, f)], "/nonexistent")
+            rc, out = sh([PY39, "-c", "import sys; compile(open(sys.argv[1]).read(), sys.argv[1], 'exec')", os.path.join(root, f)], "/nonexistent")
             if rc:
                 fail(f"py_compile {f}: {out[:200]}")
 rc, out = sh([sys.executable, "lib/merge_settings.py", "selftest"], "/nonexistent")
@@ -132,7 +133,7 @@ for i in FREE:
         fail(f"install --only {i}: exit {rc}: {out1[-300:]}")
         continue
     rc, d = sh(["bash", "doctor.sh"], home)
-    if "0 fail" not in d:
+    if not re.search(r"^doctor: 0 fail", d, re.M):  # not "10 fail"
         fail(f"doctor after --only {i}: {[l for l in d.splitlines() if 'FAIL' in l][:3]}")
     rc, out2 = sh(["bash", "install.sh", "--only", i, "--yes"], home)
     changed = [l for l in out2.splitlines() if l.startswith("  + ") or "replaced" in l or "backup of" in l]
@@ -158,13 +159,16 @@ if have != want_jobs or period != "off":  # off: both jobs exist, the report job
 # ---------------------------------------------------------------- regressions: each replays a problem an outside review found
 def hook(script, event, *args):
     r = subprocess.run([sys.executable, os.path.join(KIT, "files/hooks", script), *args], input=json.dumps(event),
-                       capture_output=True, text=True, env={**os.environ, "KIT_VERIFY_ALLOW": os.path.join(T, "none")})
+                       capture_output=True, text=True, env={**{k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}, "KIT_VERIFY_ALLOW": os.path.join(T, "none")})
     return r.returncode, r.stdout + r.stderr
 
 
-for cmd in ("rm -rf /tmp/../etc/x", "time rm x", "nice -n 5 rm x", 'bash -c "rm x"', "sh -c 'rm -rf build'"):
+for cmd in ("rm -rf /tmp/../etc/x", "time rm x", "nice -n 5 rm x", 'bash -c "rm x"', "sh -c 'rm -rf build'", "ls | xargs -n 1 rm",
+            "find . -exec rm {} +", "RM -rf src", "timeout 5 rm x", "rm /tmp/x; r''m -rf src"):
     if "deny" not in hook("block-rm.py", {"tool_name": "Bash", "tool_input": {"command": cmd}})[1]:
         fail(f"regression: rm blocker lets through: {cmd}")
+if "deny" not in subprocess.run([PY39, os.path.join(KIT, "files/hooks/block-rm.py")], input="not json", capture_output=True, text=True).stdout:
+    fail("regression: the rm blocker must deny when it cannot read its input")
 if "deny" in hook("block-rm.py", {"tool_name": "Bash", "tool_input": {"command": "rm -rf /tmp/claude-x/probe"}})[1]:
     fail("regression: rm blocker blocks a temp folder")
 proj = os.path.join(T, "proj"); os.makedirs(os.path.join(proj, ".claude"))
@@ -261,12 +265,21 @@ if rc != 2 or "Ready to install" in out:
 home = os.path.join(T, "it's & <odd> home"); os.makedirs(home)
 sh(["bash", "install.sh", "--only", "safety,measure", "--yes"], home)
 rc, out = sh(["bash", "doctor.sh"], home)
-if "0 fail" not in out:
+if not re.search(r"^doctor: 0 fail", out, re.M):
     fail("regression: doctor fails for a HOME with a quote: " + " | ".join(l for l in out.splitlines() if "FAIL" in l)[:300])
 for plist in ("com.claude-setup-kit.token-report.plist", "com.claude-setup-kit.setup-monitor.plist"):
     pth = os.path.join(home, "Library/LaunchAgents", plist)
     if not os.path.exists(pth) or subprocess.run(["plutil", "-lint", pth], capture_output=True).returncode:
         fail(f"regression: {plist} is not a valid plist when HOME has & or <")
+home = H("h-title05"); os.makedirs(os.path.join(home, ".claude"))
+open(os.path.join(home, ".claude/settings.json"), "w").write("{not json")
+rc, out = sh(["bash", "install.sh", "--only", "session-title", "--yes", "--title-recheck", "05"], home)
+if "Could not read ~/.claude/settings.json" not in out or "nothing would change" in out:
+    fail("regression: an unreadable settings.json must not be previewed as 'nothing would change'")
+try:
+    json.load(open(os.path.join(home, ".claude/kit/session-title.json")))
+except (OSError, ValueError) as e:
+    fail(f"regression: --title-recheck 05 wrote an unreadable session-title.json: {e}")
 pr = subprocess.run([sys.executable, os.path.join(KIT, "lib/audit_proofs.py"), KIT], capture_output=True, text=True, timeout=900)
 print(pr.stdout.strip())
 if pr.returncode:

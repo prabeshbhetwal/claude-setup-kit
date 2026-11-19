@@ -33,7 +33,8 @@ def hook_files(root):
     for rel in [declared] if isinstance(declared, str) else declared if isinstance(declared, list) else []:
         if isinstance(rel, str):
             files.add(os.path.normpath(os.path.join(root, rel)))
-    return sorted(f for f in files if os.path.isfile(f))
+    inside = os.path.realpath(root) + os.sep  # a path (or symlink) that leaves the plugin folder is never ours to rewrite
+    return sorted(f for f in files if os.path.isfile(f) and os.path.realpath(f).startswith(inside))
 
 
 def plugin_roots():
@@ -51,11 +52,13 @@ def plugin_roots():
 
 def patch_file(path, check=False):
     d = json.load(open(path))
+    if not isinstance(d, dict):
+        return 0
     n = 0
     for groups in (d.get("hooks") or {}).values():
         for g in groups if isinstance(groups, list) else []:
             for h in g.get("hooks", []) if isinstance(g, dict) else []:
-                t = h.get("timeout")
+                t = h.get("timeout") if isinstance(h, dict) else None
                 if isinstance(t, (int, float)) and not isinstance(t, bool) and t < FLOOR:
                     n += 1
                     h["timeout"] = FLOOR
@@ -105,6 +108,17 @@ def selftest():
     assert "timeout" not in d["Stop"][0]["hooks"][1], "an unset timeout stays unset"
     assert json.load(open(other))["hooks"]["Stop"][0]["hooks"][0]["timeout"] == 5
     assert main(check=True) == 0, "idempotent"
+    # a manifest path that climbs out of the plugin folder (or a symlink that does) must not be rewritten; a list file is skipped
+    outside = os.path.join(PLUGINS, "settings.json")
+    json.dump({"hooks": {"Stop": [{"hooks": [{"command": "u", "timeout": 5}]}]}}, open(outside, "w"))
+    link = os.path.join(root, "hooks", "link.json")
+    os.symlink(outside, link)
+    listed = os.path.join(root, "hooks", "list.json")
+    json.dump([1, 2], open(listed, "w"))
+    json.dump({"hooks": ["../../../../settings.json", "./hooks/link.json", "./hooks/list.json", "./hooks/claude.json"]},
+              open(os.path.join(root, ".claude-plugin", "plugin.json"), "w"))
+    assert hook_files(root) == [claude, listed], hook_files(root)
+    assert main(check=False) == 0 and os.path.islink(link) and json.load(open(outside))["hooks"]["Stop"][0]["hooks"][0]["timeout"] == 5
     print("selftest ok")
 
 

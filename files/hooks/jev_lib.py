@@ -9,12 +9,13 @@ and the caller keeps its normal behaviour. Never prints or logs the API key.
 """
 from __future__ import annotations
 
-import concurrent.futures
 import hashlib
 import importlib.machinery
 import importlib.util
 import json
 import os
+import queue
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -41,15 +42,18 @@ _loader.exec_module(_jev)
 
 def policy() -> dict:
     try:
-        return {**DEFAULTS, **json.loads(POLICY.read_text())}
+        raw = json.loads(POLICY.read_text())
     except (OSError, ValueError):
         return {**DEFAULTS, "unreadable": True}  # consent is recorded there: without it, optional sites stay off
+    if not isinstance(raw, dict):  # [] or null is no policy at all: send nothing
+        return {**DEFAULTS, "unreadable": True, "enabled": False}
+    return {**DEFAULTS, **raw}
 
 
 def _allowed(pol: dict, cwd: str, site: str = "") -> bool:
     if pol.get("unreadable") and site not in ("", "cli"):
         return False  # policy.json missing or corrupt: never send for a hook or plugin on a guess
-    return pol["enabled"] and site not in pol.get("sites_off", []) and not skipped(pol, cwd)
+    return pol["enabled"] is True and site not in pol.get("sites_off", []) and not skipped(pol, cwd)
 
 
 def skipped(pol: dict, cwd: str) -> bool:
@@ -100,11 +104,30 @@ def noul(site: str, question: str, items: list[str], context: str = "", cwd: str
         qs = {str(i): _jev.question("noul", question, i, {}, []) for i in idx}
         return _post({"state": state, "model": _jev.MODEL, "questions": qs}, pol["timeout_s"])["answers"]
 
+    todo, done = queue.Queue(), queue.Queue()
+    for b in batches:
+        todo.put(b)
+
+    def worker():
+        while not todo.empty():
+            try:
+                done.put(run(todo.get_nowait()))
+            except queue.Empty:
+                return
+            except Exception as e:
+                done.put(e)
+
+    # daemon threads, not a `with ThreadPoolExecutor`: leaving that block waits for a stalled request, so the deadline would not hold
+    for _ in range(min(4, len(batches))):
+        threading.Thread(target=worker, daemon=True).start()
+    deadline = time.monotonic() + pol["timeout_s"] + 0.5
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            answers = {}
-            for got in pool.map(run, batches, timeout=pol["timeout_s"] + 0.5):
-                answers.update(got)
+        answers = {}
+        for _ in batches:
+            got = done.get(timeout=max(0.0, deadline - time.monotonic()))
+            if isinstance(got, Exception):
+                raise got
+            answers.update(got)
         return [float(answers[str(i)]["noul"]) for i in range(len(items))]
     except Exception as e:
         return _failopen(site, f"{type(e).__name__}: {str(e)[:160]}", cwd)
@@ -183,6 +206,26 @@ def doctor() -> tuple[bool, list[str]]:
         return False, lines
 
 
+def _test() -> None:
+    """Offline: policy shapes and the timeout deadline. Run it with a throwaway HOME."""
+    import tempfile
+    global POLICY, DIR, _post
+    DIR = Path(tempfile.mkdtemp())
+    POLICY = DIR / "policy.json"
+    for text, on in (("[]", False), ("null", False), ('{"enabled": "false"}', False), ('{"enabled": false}', False), ('{"enabled": null}', False),
+                     ("{}", True), ('{"enabled": true}', True)):  # absent key keeps the default (on); only a real true is on
+        POLICY.write_text(text)
+        assert _allowed(policy(), "/", "x") is on, f"policy {text}: allowed should be {on}"
+    POLICY.write_text('{"timeout_s": 0.5}')
+    _post = lambda body, timeout: time.sleep(3) or {"answers": {}}  # noqa: E731  (a stalled request)
+    t0 = time.monotonic()
+    assert noul("t", "q?", ["a"]) is None
+    assert time.monotonic() - t0 < 2, "timeout_s must be a deadline, not a hint: a stalled request held noul for 3s"
+    _post = lambda body, timeout: {"answers": {"0": {"noul": 0.7}}}  # noqa: E731
+    assert noul("t", "q?", ["a"]) == [0.7]
+    print("jev_lib test ok")
+
+
 def _cli_scored() -> None:
     """For non-Python hooks: stdin {site, question, items, key, context?, cwd?} -> stdout probs list or null."""
     import sys
@@ -196,6 +239,8 @@ def _cli_scored() -> None:
 
 if __name__ == "__main__" and len(__import__("sys").argv) > 1 and __import__("sys").argv[1] == "scored":
     _cli_scored()
+elif __name__ == "__main__" and len(__import__("sys").argv) > 1 and __import__("sys").argv[1] == "test":
+    _test()
 elif __name__ == "__main__" and len(__import__("sys").argv) > 1 and __import__("sys").argv[1] == "doctor":
     _ok, _lines = doctor()
     print("\n".join(_lines) + ("\njev doctor: OK" if _ok else "\njev doctor: FAIL"))
