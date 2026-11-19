@@ -57,9 +57,9 @@ SECRET = re.compile(
     r"|(?i:\bbearer\s+\S{20,})|://[^/\s:@]+:[^/\s@]+@"  # Authorization header; URL user:password@
     r"|(?i:\baws.{0,30}?[\"'\s:=]+)(?=[A-Za-z0-9/+]*[A-Z])(?=[A-Za-z0-9/+]*[a-z])[A-Za-z0-9/+]{40}\b"  # AWS secret access key near an aws label
     # name containing secret/password/api key, bare or quoted (JSON), then any value of 8+ (a numeric one is still a credential)
-    r"|(?i:\w*(?:password|passwd|secret|api[_-]?key)\w*[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
-    # a name containing "token": a plain number is a count (max_tokens: 4096), anything else of 8+ is a credential
-    r"|(?i:\w*token\w*[\"']?\s*[:=]\s*[\"']?(?![\d.]+[\"']?[,;)}\]]*(?=\s|$|[\"'{\[]))[^\s\"']{8,})"
+    r"|(?i:\b\w*?(?:password|passwd|secret|api[_-]?key)\w*[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
+    # a name containing "token" is a credential with any value of 8+, unless the name is a count (max_tokens, token_count)
+    r"|(?i:\b(?!\w*(?:tokens|token_counts?)[\"']?\s*[:=])\w*?token\w*[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
 )
 
 
@@ -270,10 +270,15 @@ def offline_test() -> None:
         assert SECRET.search(text), text  # a value that only STARTS with digits is still a credential
     for text in ("max_tokens: 12345678", "token_count=123456789", "retries: 3"):
         assert not SECRET.search(text), text  # an all-numeric value is telemetry
-    for text in ("refresh_" + "token=\"12345678,abcdefgh\"", "tok" + "en=12345678;abcdefgh"):
+    for text in ("refresh_" + "token=\"12345678,abcdefgh\"", "tok" + "en=12345678;abcdefgh",
+                 '{"refresh_' + 'token":"12345678[abcdefghijklmnop]"}', 'REFRESH_' + 'TOKEN=12345678"abcdefghijklmnop"', "access_" + "token=1234567890"):
         assert SECRET.search(text), text  # a comma or semicolon INSIDE the value does not make it a count
     for text in ('"max_tokens": 4096,', "tokens: 4096}", "token_count=123456789 next", '[{"total_tokens":12345678,"output_tokens":10}]'):
         assert not SECRET.search(text), text
+    import time as _t
+    t0 = _t.perf_counter()
+    SECRET.search("a" * 40000 + " " + "Q" * 40000)
+    assert _t.perf_counter() - t0 < 0.5, "the filter must scan long text in linear time"
     print("jev offline test ok")
 
 

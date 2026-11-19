@@ -112,13 +112,14 @@ def scan(start, end):
         for f in glob.glob(TC.P + pattern):
             if os.path.getmtime(f) < min(start.timestamp(), TC.AFTER[0].timestamp()):
                 continue
-            reqs = TC.requests(f, seen)
-            if not reqs:
+            whole = TC.requests(f)  # the session's own first request, even when an earlier file already holds it
+            if not whole:
                 continue
-            key = (kind, reqs[0][3], TC.fam(reqs[0][1]))
-            post = reqs[0][0] >= TC.AFTER[0]
+            key = (kind, whole[0][3], TC.fam(whole[0][1]))
+            post = whole[0][0] >= TC.AFTER[0]
             if post:
-                firsts[key].append(TC.ctx(reqs[0][2]))
+                firsts[key].append(TC.ctx(whole[0][2]))
+            reqs = TC.requests(f, seen)  # usage totals: each message once across all files
             for t, model, u, _ in reqs:
                 if not start <= t < end:
                     continue

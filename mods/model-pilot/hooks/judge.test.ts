@@ -76,6 +76,9 @@ test('a positive model choice beside a negated alternative still counts', async 
   expect(explicitChoice('Analyse this with Opus, not with Fable.').tier).toBe('opus')
   expect(explicitChoice('compare haiku with sonnet').tier).toBeUndefined()
   expect(explicitChoice('Compare requests not using Sonnet with those on Fable.').tier).toBeUndefined()
+  expect(explicitChoice('Summarise those files with Opus, high effort.')).toEqual({ tier: 'opus', effort: 'high' })
+  expect(explicitChoice('Sonnet got this wrong. Analyse this with Opus.').tier).toBe('opus')
+  expect(explicitChoice('We compared the results yesterday. Summarise the notes with Opus.').tier).toBe('opus')
   expect(explicitChoice('Do not use fable; use sonnet instead.').tier).toBe('sonnet')
 })
 

@@ -50,7 +50,7 @@ def is_temp(path):
 def blocked(command):
     for m in RM.finditer(command):
         quote = command[m.start(1) - 1] if m.start(1) and command[m.start(1) - 1] in "\"'" else ""
-        segment = re.split(r"[;&|)\n`}" + quote + "]", command[m.start(1):], maxsplit=1)[0]  # bash -c "rm x": stop at the quote
+        segment = re.split(r"[;&|)\n" + quote + "]", command[m.start(1):], maxsplit=1)[0]  # not at ` or }: later targets must stay checked  # bash -c "rm x": stop at the quote
         paths = targets(segment)
         if not paths or not all(is_temp(p) for p in paths):
             return True
@@ -128,6 +128,8 @@ def test():
     assert blocked(f"rm {d}/link/hosts"), "a symlink out of /tmp"
     assert blocked(f"rm -rf {d}/link/../important"), "the link is followed before .., so this leaves /tmp"
     assert not blocked(f"rm {d}/plain.txt")
+    assert blocked("rm -rf /tmp/build-`id -u` /etc/project"), "a backtick must not hide the targets after it"
+    assert blocked("rm -rf /tmp/{a,b} /etc/x")
     print("block-rm self-check: ok")
 
 
