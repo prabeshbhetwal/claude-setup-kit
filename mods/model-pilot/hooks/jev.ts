@@ -65,5 +65,5 @@ export function parseJevReply(stdout: string): Verdict | undefined {
     .join(', ')
   const gap = answers?.gap?.choice === 'knowledge' || answers?.gap?.choice === 'care' ? { gap: answers.gap.choice as 'knowledge' | 'care' } : {}
   const checkable = answers?.checkable?.choice === 'yes' || answers?.checkable?.choice === 'no' ? { checkable: answers.checkable.choice === 'yes' } : {}
-  return { tier, effort, confidence, ...gap, ...checkable, reason: `Jev: ${tier} ${self.toFixed(2)}${runnerUp ? ` (also ${runnerUp})` : ''}` }
+  return { tier, effort, confidence, ...gap, ...checkable, reason: `Jev: ${tier} ${confidence.toFixed(2)}${runnerUp ? ` (also ${runnerUp})` : ''}` }
 }

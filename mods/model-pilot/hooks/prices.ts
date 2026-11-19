@@ -3,7 +3,8 @@ import type { Tier } from './policy'
 
 type Rate = { in: number; out: number; cacheRead: number; cacheWrite: number }
 
-// US dollars per million tokens, Anthropic first-party list prices as of 2026-11-16.
+// US dollars per million tokens, Anthropic first-party list prices as of PRICES_AS_OF.
+export const PRICES_AS_OF = '2026-11-16'
 // Claude Code asks for the 1-hour prompt cache, so a cache write costs 2x input.
 // Haiku 5.5 has two rate cards: prompts over 100K tokens pay 5x. Sonnet 5.5 reads cache at 0.05x. Checked against the
 // engine's own cost figure (total_cost_usd) on live runs: see eval/live/README.md.

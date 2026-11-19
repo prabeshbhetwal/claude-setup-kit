@@ -5,7 +5,7 @@
 # Everything runs in the background so sessions and turns never wait on it.
 # Usage: ensure-indexes.sh          (SessionStart: prints a one-line notice)
 #        ensure-indexes.sh stop     (Stop: silent refresh after each turn)
-#        ensure-indexes.sh fg       (hourly job: silent, waits, exit code = refresh result)
+#        ensure-indexes.sh fg       (for your own scheduled job: silent, waits, exit code = refresh result)
 # Logs: ~/.claude/cache/index-builds/<repo-path>.log
 mode=${1:-start}
 CG="$HOME/.local/bin/codegraph"; GF="$HOME/.local/bin/graphify"   # pinned: older graphify copies sit earlier on some PATHs
@@ -49,19 +49,20 @@ ex=$(git -C "$r" rev-parse --path-format=absolute --git-path info/exclude 2>/dev
 if [ -n "$ex" ]; then
   mkdir -p "$(dirname "$ex")"
   for p in .codegraph/ graphify-out/; do
-    grep -qxF "$p" "$ex" 2>/dev/null || echo "$p" >> "$ex"
+    grep -qxF "$p" "$ex" 2>/dev/null || { echo "$p" >> "$ex"; [ "$mode" = start ] && echo "Added $p to $ex (keeps it out of git status; tracked files untouched)."; }
   done
 fi
 
 # mkdir is atomic: a second session opening the same repo won't start a duplicate build.
 # A lock older than 45 min (past the 40 min of timeouts below) belongs to a killed build; clear it so refreshes never stop for good.
 # Every command is wrapped in timeout (600 s sync, 1800 s build): a hung tool exits 124, the stamp
-# stays unwritten, and the next turn or hourly run retries — nothing can block refreshes forever.
-build() { # $1 = lock name, $2 = shell command
+# stays unwritten, and the next turn retries — nothing can block refreshes forever.
+build() { # $1 = lock name, $2 = shell command (runs in the repo; reads TO CG GF sig stamp from the environment)
+  export TO CG GF sig stamp r
   lock="$logdir/$key.$1.lock"
   find "$lock" -maxdepth 0 -mmin +45 -exec rmdir {} \; 2>/dev/null
   mkdir "$lock" 2>/dev/null || return 0
-  if [ "$mode" = fg ]; then   # hourly job (token-stack-health.sh): wait, report failure via exit code
+  if [ "$mode" = fg ]; then   # fg mode: wait, report failure via exit code
     ( cd "$r" && { echo "[$(date '+%F %T')] $2"; sh -c "$2"; } >> "$log" 2>&1 ) </dev/null; rc=$?
     rmdir "$lock"; return $rc
   fi
@@ -70,12 +71,12 @@ build() { # $1 = lock name, $2 = shell command
 
 if [ ! -d "$r/.codegraph" ]; then
   [ "$mode" = start ] && echo "No .codegraph/ in $r: building CodeGraph index in background (log: $log)."
-  build codegraph "$TO 1800 $CG init -y '$r'"
+  build codegraph '"$TO" 1800 "$CG" init -y "$r"'
 fi
 
 if [ ! -d "$r/graphify-out" ]; then
   [ "$mode" = start ] && echo "No graphify-out/ in $r: building graphify graph in background (log: $log)."
-  build graphify "$TO 1800 $GF update '$r'"
+  build graphify '"$TO" 1800 "$GF" update "$r"'
   exit $?
 fi
 [ "$mode" = start ] && echo "graphify-out/ present: read $r/graphify-out/GRAPH_REPORT.md (or wiki/index.md) before architecture/spec/doc questions."
@@ -90,5 +91,6 @@ sig=$( { git -C "$r" rev-parse HEAD 2>/dev/null
 [ "$sig" = "$(cat "$stamp" 2>/dev/null)" ] && exit 0
 
 # The stamp is written only after both refreshes succeed, so a failed run is retried next time.
-build refresh "$TO 600 $CG sync '$r' && $TO 1800 $GF update '$r' && echo '$sig' > '$stamp'"
+# Paths reach the command through the environment, so a quote in a repo path can't break it.
+build refresh '"$TO" 600 "$CG" sync "$r" && "$TO" 1800 "$GF" update "$r" && echo "$sig" > "$stamp"'
 exit $?

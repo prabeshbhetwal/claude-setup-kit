@@ -123,11 +123,11 @@ def tool_calls(start, end, root=None):
 
 
 def model_pilot(start, end, path=None):
-    """(decisions, of which ran below the menu model, estimated saving in US dollars) from model-pilot's log; None without one."""
+    """(decisions, of which ran below the menu model, estimated saving in US dollars, of which Jev judged) from model-pilot's log; None without one."""
     path = path or os.path.expanduser("~/.claude/mods-logs/model-pilot.jsonl")
     if not os.path.exists(path):
         return None
-    n = lower = 0
+    n = lower = by_jev = 0
     saved = 0.0
     for line in open(path, errors="replace"):
         try:
@@ -138,11 +138,12 @@ def model_pilot(start, end, path=None):
         if not start <= at < end:
             continue
         n += 1
+        by_jev += d.get("judge") == "jev"
         if not d.get("shadow"):
             saving = d.get("est_saving_usd") or 0
             saved += saving
             lower += saving > 0
-    return n, lower, saved
+    return n, lower, saved, by_jev
 
 
 # Substrings that mark a tool's use in a transcript line holding a tool call or a slash command.
@@ -181,6 +182,8 @@ def unused(installed, tools, rtk, used):
         seen.add("context-mode")
     if tools.get("model-pilot") and tools["model-pilot"][0]:
         seen.add("model-pilot")
+        if len(tools["model-pilot"]) > 3 and tools["model-pilot"][3]:
+            seen.add("jev")  # Model pilot calls Jev itself, so its judge calls never show as `jev` commands
     if rtk:
         seen.add("rtk")
     judged = set(SIGNS) | {"codegraph", "graphify", "model-pilot", "rtk"}
@@ -268,6 +271,7 @@ def selftest():
     inst = ["caveman", "codegraph", "graphify", "grill-me", "jev", "mjudge", "deliberation", "rtk", "model-pilot", "supermemory"]
     assert unused(inst, tools, 0, used) == ["deliberation", "mjudge", "rtk"], unused(inst, tools, 0, used)
     assert unused(inst, {**tools, "codegraph": [0, 0]}, 5, used) == ["codegraph", "deliberation", "mjudge"]
+    assert unused(inst, {**tools, "model-pilot": (2, 0, 0.0, 1)}, 0, set()) == ["deliberation", "grill-me", "mjudge", "rtk"]  # Jev seen via Model pilot
     return tools
 
 

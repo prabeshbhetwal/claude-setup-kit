@@ -217,7 +217,7 @@ for id in rtk safety indexes routing cognee jev measure guard sandbox verify ses
   say ""
   say "Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command)."
   say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules, done checks and session titles only work through them. They are added to"
-  say "~/.claude/settings.json: backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised. Cognee's local-only setting also goes in through this step."
+  say "~/.claude/settings.json: backed up first; nothing of yours in it is removed; missing hooks, env keys and deny rules are added, and an older, shorter time limit on a kit hook is raised. Cognee's local-only setting (COGNEE_BACKEND=local) goes in only through this step: say no and Cognee uses its own default backend, which this kit has not checked, so add that env key yourself."
   ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
   break
 done
@@ -526,7 +526,7 @@ if has measure; then
   copy_file "$KIT/files/hooks/house-rules-recall.py" "$CL/hooks/house-rules-recall.py" exec replace
   [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
   # Freeze the 30 days before install now, while those transcripts still exist (Claude Code prunes old ones).
-  [ -f "$CL/cache/token-compare/before-week.json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (30 days before install)"; }
+  [ -f "$CL/cache/token-compare/before-week-$(cat "$CL/cache/token-compare/change-date").json" ] || { python3 "$CL/hooks/token-compare.py" >/dev/null 2>&1 && ok "token baseline frozen (30 days before install)"; }
   b=$(python3 "$CL/hooks/token-compare.py" baseline 2>/dev/null) && [ -n "$b" ] && info "$b"
   python3 "$CL/hooks/token-report.py" --set "${REPORT:-month}" >/dev/null && ok "token report: ${REPORT:-month} (change any time: python3 ~/.claude/hooks/token-report.py --set week|fortnight|month|off)"
   # A daily 09:00 job; the script writes a report only when a chosen period has finished and has none yet,

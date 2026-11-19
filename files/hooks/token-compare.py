@@ -30,9 +30,9 @@ BEFORE = (CHANGE - timedelta(days=BEFORE_DAYS), CHANGE)
 AFTER = (CHANGE + timedelta(days=1), CHANGE + timedelta(days=8))
 P = os.path.expanduser("~/.claude/projects")
 OUT = os.path.expanduser("~/.claude/cache/token-compare")
-SNAP = os.path.join(OUT, "before-week.json")
+SNAP = os.path.join(OUT, f"before-week-{CHANGE:%Y-%m-%d}.json")  # one frozen baseline per change day, so editing the day never reuses another day's
 FAMS = ("opus", "sonnet", "haiku", "fable")
-MIN_N = 5  # sessions needed on both sides before a stratum is compared
+MIN_N = 10  # sessions needed on both sides before a stratum is compared (fewer and the median and p10 are noise)
 PROBE = tuple(int(x) for x in os.environ.get("TOKEN_COMPARE_PROBE", "").split(",") if x)  # optional "before,after" from your own `claude -p` probe
 
 
@@ -94,7 +94,7 @@ def session_rows():
 
 
 def p10(xs):
-    return sorted(xs)[max(0, int(len(xs) * 0.1) - 1)] if xs else 0
+    return sorted(xs)[min(len(xs) - 1, int(len(xs) * 0.1))] if xs else 0  # 10th percentile, not the minimum
 
 
 def median_delta(before, after, rounds=1000):
@@ -103,6 +103,14 @@ def median_delta(before, after, rounds=1000):
     diffs = sorted(st.median(rnd.choices(before, k=len(before))) - st.median(rnd.choices(after, k=len(after)))
                    for _ in range(rounds))
     return st.median(before) - st.median(after), diffs[int(rounds * 0.025)], diffs[int(rounds * 0.975)]
+
+
+def total_range(strata, rounds=1000):
+    """95% bootstrap range of the summed saving (median drop x requests) over all rows, resampling each row independently."""
+    rnd = random.Random(0)
+    tot = sorted(sum((st.median(rnd.choices(b, k=len(b))) - st.median(rnd.choices(a, k=len(a)))) * n for b, a, n in strata)
+                 for _ in range(rounds))
+    return (tot[int(rounds * 0.025)], tot[int(rounds * 0.975)]) if strata else (0, 0)
 
 
 def fm(x):
@@ -146,6 +154,7 @@ def report(rows, now=None):
          "| Session type | Sessions before / after | First request, median before -> after | Drop (95% range) | Drop at the low end (p10) |"
          " After-week requests | Estimated tokens saved |", "|---|---|---|---|---|---|---|"]
     lo_total = hi_total = covered = 0
+    strata = []  # (before firsts, after firsts, after-week requests) per compared row
     after_reqs = sum(r["n"] for r in rows if r["week"] == "after")
     for key in sorted(by, key=lambda k: -sum(r["n"] for r in by[k]["after"])):
         b, a = by[key]["before"], by[key]["after"]
@@ -160,10 +169,14 @@ def report(rows, now=None):
         n = sum(r["n"] for r in a)
         est = sorted((d * n, dp * n))
         lo_total, hi_total, covered = lo_total + est[0], hi_total + est[1], covered + n
+        strata.append((fb, fa, n))
         L.append(f"| {name} | {len(b)} / {len(a)} | {fm(st.median(fb))} -> {fm(st.median(fa))} | {fm(d)} ({fm(lo)} to {fm(hi)}) |"
                  f" {fm(dp)} | {n} | {fm(est[0])} to {fm(est[1])} |")
+    ci_lo, ci_hi = total_range(strata)
     L += ["", f"**Estimated saving in the after week: {fm(lo_total)} to {fm(hi_total)} tokens**, covering "
-              f"{100 * covered / after_reqs:.0f}% of after-week requests." if after_reqs else
+              f"{100 * covered / after_reqs:.0f}% of after-week requests. The median drop alone is uncertain: resampling every "
+              f"row together, the 95% range is {fm(ci_lo)} to {fm(ci_hi)} tokens." if strata else
+          "**Not enough sessions to compare yet** (each row needs " f"{MIN_N} on both sides)." if after_reqs else
           "**No after-week sessions yet.** The table fills in from the day after the change.",
           "A negative number means the first request got larger. Each row's estimate is its drop times its own request count,"
           " using the median drop and the low-end (p10) drop as the two ends of the range.", "",
@@ -185,13 +198,13 @@ def report(rows, now=None):
 
 def selftest():
     rows = [{"week": w, "kind": "main", "ep": "cli", "fam": "opus", "first": f, "n": 10, "ctx": f * 10, "read": f * 9, "out": 100}
-            for w, f in [("before", 100_000)] * 6 + [("after", 97_000)] * 6]
+            for w, f in [("before", 100_000)] * 10 + [("after", 97_000)] * 10]
     d, lo, hi = median_delta([r["first"] for r in rows if r["week"] == "before"], [r["first"] for r in rows if r["week"] == "after"])
     assert (d, lo, hi) == (3000, 3000, 3000), (d, lo, hi)
     text = report(rows, now=AFTER[1])
-    assert "180.0k to 180.0k tokens" in text and "100%" in text, text  # 3,000 x 60 requests
-    assert f"| Requests | {60 / BEFORE_DAYS:.0f} | 9 |" in text, text  # per day: 60 over 30 days, 60 over 7
-    assert "6 sessions, 60 requests" in baseline(rows) and "No Claude Code sessions" in baseline([])
+    assert "300.0k to 300.0k tokens" in text and "100%" in text and "95% range is 300.0k to 300.0k" in text, text  # 3,000 x 100 requests
+    assert f"| Requests | {100 / BEFORE_DAYS:.0f} | 14 |" in text, text  # per day: 100 over 30 days, 100 over 7
+    assert "10 sessions, 100 requests" in baseline(rows) and "No Claude Code sessions" in baseline([])
     print("selftest ok")
 
 
@@ -199,8 +212,15 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["selftest"]:
         selftest()
         sys.exit(0)
-    rows = session_rows()
     os.makedirs(OUT, exist_ok=True)
+    old = os.path.join(OUT, "before-week.json")  # kept by older installs: it belongs to the change day on record
+    if os.path.exists(old) and not os.path.exists(SNAP) and not os.environ.get("TOKEN_COMPARE_CHANGE") and os.path.exists(_CD):
+        os.replace(old, SNAP)
+    if not os.environ.get("TOKEN_COMPARE_CHANGE") and not os.path.exists(_CD):
+        # No change day on record (install.sh writes one): fix today as the change day so later runs compare the same weeks.
+        open(_CD, "w").write(f"{CHANGE:%Y-%m-%d}\n")
+        print(f"No change day on record: using today ({CHANGE:%Y-%m-%d}), saved to {_CD}. Edit that file to compare another day.")
+    rows = session_rows()
     if sys.argv[1:] == ["baseline"]:
         rows = json.load(open(SNAP)) if os.path.exists(SNAP) else rows
         print(baseline(rows))
