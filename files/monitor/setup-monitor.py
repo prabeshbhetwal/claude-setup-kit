@@ -6,7 +6,7 @@
   setup-monitor.py weekly [--notify]     # what launchd runs on Mondays: collect 2 weeks, report, trend, house-rules mine
   setup-monitor.py note "text"           # log a setup change, shown against the week it happened in
   setup-monitor.py selftest
-Data lives in ~/.claude/monitor (SETUP_MONITOR_HOME). Design: docs/setup-monitor-design.md in claude-setup-kit.
+Data lives in ~/.claude/monitor (SETUP_MONITOR_HOME).
 """
 import json
 import os

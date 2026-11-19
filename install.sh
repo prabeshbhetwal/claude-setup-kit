@@ -63,6 +63,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Before any question: a Linux user should not answer them all just to be told the kit is Mac-only.
+if [ "$(uname -s)" != Darwin ] && [ "${KIT_ALLOW_NON_MAC:-}" != 1 ]; then
+  say "This kit is tested on macOS only (it uses the Keychain, osascript, BSD stat and Homebrew)."
+  say "Set KIT_ALLOW_NON_MAC=1 to try anyway."; exit 1
+fi
+
 # Questions come from the terminal even when stdin is a pipe; no terminal -> defaults.
 ask() { # ask "question" default(y|n) -> 0 for yes
   local a d=$2
@@ -163,13 +169,13 @@ for pair in indexes:codegraph indexes:graphify mjudge:jev; do
 done
 [ "$SELECTED" = " " ] && { say "Nothing selected. Nothing changed."; exit 0; }
 if has caveman && [ -z "$CAVEMODE" ]; then
-  CAVEMODE=ultra
+  CAVEMODE=full
   if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
-    printf '\n  Caveman strength: lite (light trim), full, ultra (fragments only). [ultra] '; read -r CAVEMODE </dev/tty
-    CAVEMODE=${CAVEMODE:-ultra}
+    printf '\n  Caveman strength: lite (light trim), full, ultra (fragments only). [full] '; read -r CAVEMODE </dev/tty
+    CAVEMODE=${CAVEMODE:-full}
   fi
 fi
-case "$CAVEMODE" in ''|lite|full|ultra) ;; *) info "Caveman mode '$CAVEMODE' not known: using ultra"; CAVEMODE=ultra ;; esac
+case "$CAVEMODE" in ''|lite|full|ultra) ;; *) info "Caveman mode '$CAVEMODE' not known: using full"; CAVEMODE=full ;; esac
 
 # ---------------------------------------------------------------- the changes, each asked for first (--yes: all yes)
 DO_SETTINGS=1; DO_SCHED=1
@@ -206,15 +212,18 @@ if has model-pilot && [ "$(uname -s)" != Darwin ]; then drop model-pilot; info "
 if has model-badge && [ "$(uname -s)" != Darwin ]; then drop model-badge; info "Model badge left out: it is macOS only for now"; fi
 if has model-pilot; then
   # Two selectors would each pick a model for the same prompt. Only one can be on.
-  OTHER=$(python3 -c 'import json,sys
+  # xcode-select -p first: on a fresh Mac a bare python3 pops up Apple's install window in the middle of the questions.
+  OTHER=$(xcode-select -p >/dev/null 2>&1 && python3 -c 'import json,sys
 try: print(" ".join(k for k, v in json.load(open(sys.argv[1])).get("enabledPlugins", {}).items() if v is True and k.endswith("@claude-model-selector")))
-except Exception: pass' "$CL/settings.json" 2>/dev/null)
+except Exception: pass' "$CL/settings.json" 2>/dev/null || true)
   if [ -n "$OTHER" ]; then
     say ""
     say "Model pilot: another model selector is switched on ($OTHER)."
     say "Two selectors would each pick a model for the same prompt, so only one can be on. Switching the other"
     say "one off does not remove it: 'claude plugin enable <name>' brings it back."
-    if ask "Switch the other one off and use Model pilot? (No = leave Model pilot out)" y; then PILOT_OFF=$OTHER
+    if [ "$MODE" = yes ] || [ "$TTY" = 0 ]; then  # nobody to ask: never switch off something of the user's
+      drop model-pilot; info "Model pilot left out: nobody could be asked about switching the other one off. Run ./install.sh with no options to choose."
+    elif ask "Switch the other one off and use Model pilot? (No = leave Model pilot out)" y; then PILOT_OFF=$OTHER
     else drop model-pilot; info "Model pilot left out"; fi
   fi
 fi
@@ -254,10 +263,6 @@ ask "Go ahead?" y || { say "Stopped. Nothing changed."; exit 0; }
 say ""; say "Installing:$SELECTED"
 
 # ---------------------------------------------------------------- preflight (before any change)
-if [ "$(uname -s)" != Darwin ]; then
-  say "This kit is tested on macOS only (it uses the Keychain, osascript, BSD stat and Homebrew)."
-  say "Set KIT_ALLOW_NON_MAC=1 to try anyway."; [ "${KIT_ALLOW_NON_MAC:-}" = 1 ] || exit 1
-fi
 # Prerequisites. Each missing one is explained, and offered to be installed for you (in order: Apple tools,
 # Homebrew, then the rest). Nothing of the kit itself is installed until all of them are present.
 # Override the install commands with KIT_CMD_<NAME> (used by the tests).
@@ -443,7 +448,7 @@ fi
 if has measure; then
   for f in token-scorecard.py token-compare.py token-daily.py token-report.py token-tools.py token-ledger.py; do copy_file "$KIT/files/hooks/$f" "$CL/hooks/$f" exec replace; done
   mkdir -p "$CL/cache/token-compare/reports" "$CL/monitor/bin"
-  # Setup monitor (weekly scorecard) and house rules: docs/setup-monitor-design.md
+  # Setup monitor (weekly scorecard) and house rules
   for f in "$KIT"/files/monitor/*.py; do copy_file "$f" "$CL/monitor/bin/$(basename "$f")" exec replace; done
   copy_file "$KIT/files/hooks/house-rules-recall.py" "$CL/hooks/house-rules-recall.py" exec replace
   [ -f "$CL/cache/token-compare/change-date" ] || date +%F > "$CL/cache/token-compare/change-date"
@@ -458,7 +463,7 @@ if has measure; then
     [ "$HOME" = "$(eval echo "~$(id -un)")" ] && launchctl bootout "gui/$(id -u)/com.claude-setup-kit.token-monthly" >/dev/null 2>&1
     mv "$OLD" "$OLD.bak-kit-$TS" && ok "old monthly job replaced (kept as $(short "$OLD").bak-kit-$TS)"
   fi
-  if [ "$DO_SCHED" = 0 ]; then info "token report off: nothing scheduled (run it by hand: python3 ~/.claude/hooks/token-report.py)"; else
+  if [ "$DO_SCHED" = 0 ]; then info "token report off: its daily job is not scheduled (run it by hand: python3 ~/.claude/hooks/token-report.py)"; else
   LBL=com.claude-setup-kit.token-report; PL="$LA/$LBL.plist"; mkdir -p "$LA"
   cat > "$PL.tmp" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -480,6 +485,8 @@ PLIST
       launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "token report job scheduled (daily check at 09:00; writes a report when your period ends)" || fail "launchctl bootstrap $PL"
     else info "test HOME: report job written to $PL, not loaded"; fi
   fi
+  fi
+  # The weekly scorecard is its own job: it runs whatever was chosen for the token report.
   LBL=com.claude-setup-kit.setup-monitor; PL="$LA/$LBL.plist"
   cat > "$PL.tmp" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -499,7 +506,6 @@ PLIST
       launchctl bootout "gui/$(id -u)/$LBL" >/dev/null 2>&1
       launchctl bootstrap "gui/$(id -u)" "$PL" >/dev/null 2>&1 && ok "setup monitor scheduled (Mondays 08:15: scorecard, trend, house-rule candidates)" || fail "launchctl bootstrap $PL"
     else info "test HOME: setup monitor job written to $PL, not loaded"; fi
-  fi
   fi
 fi
 

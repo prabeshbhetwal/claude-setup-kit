@@ -23,7 +23,7 @@ You need the Claude app (or a Claude Code plan) and an internet connection. Ever
 ## What happens when you run it, step by step
 
 1. **It asks first about the tools that need an API key or an account** (Supermemory, Jev, mjudge, Deliberation), in one checkbox list, so no key comes as a surprise later. Each says which key it needs and what it costs. Supermemory starts ticked; the others start unticked.
-2. **Then it explains the other groups** ("tiers"): core, memory, model routing, plan checks. For every tool you see what it does, how it helps you, what it needs, and its licence.
+2. **Then it explains the other groups** ("tiers"): core, safety rules and checks (guard), memory, model routing, judge tools, plan checks. For every tool you see what it does, how it helps you, what it needs, and its licence.
 3. **You tick what you want.** Each group shows a checkbox list:
    ```
      [x] 1. Caveman
@@ -31,7 +31,7 @@ You need the Claude app (or a Claude Code plan) and an internet connection. Ever
      [ ] 3. Ponytail
      Type numbers to tick/untick (e.g. 1 3), a = all, n = none, Enter = done:
    ```
-   Core starts ticked (recommended for everyone), and remember in memory; the rest start unticked.
+   Core starts ticked (recommended for everyone), plus remember in memory and the two safety tools in the guard group (deny rules and done checks); the rest start unticked.
 4. **It asks about anything that depends on something else.** Example: "Auto index hooks only works together with CodeGraph. Add CodeGraph as well?" Saying no leaves out the tool that needed it.
 5. **It asks before each kind of change, and says why:**
    - writing the rules file `~/.claude/CLAUDE.md` (it tells Claude when to use each tool). If you already have one, yours is kept and the kit's version is saved next to it as `CLAUDE.md.kit-new`;
@@ -73,7 +73,7 @@ Inside Claude the installer has no keyboard to answer questions, so it picks the
 ```
 Install the claude-setup-kit in this folder.
 1. Read README.md and .env.example.
-2. Run ./install.sh --tiers core,memory,routing --install-missing.
+2. Run ./install.sh --tiers core,memory,routing --skip supermemory,cognee --install-missing.
    Anything that needs my password or a window click (Apple tools, Homebrew): tell me the exact command and wait for me.
 3. Run the doctor script and fix every FAIL, re-running it until there are none.
 4. Walk me through the to-do list one item at a time. Never ask me to paste an API key into this chat.
@@ -88,11 +88,11 @@ Pick the tiers you want; `--list` prints every tool.
 | Option | What it does |
 |---|---|
 | `--yes` | No questions: core tier only |
-| `--tiers core,memory` | No questions: these tiers (`core guard memory routing judge deliberation`) |
+| `--tiers core,memory` | No questions: every tool in these tiers (`core guard memory routing judge deliberation`). `memory` includes Supermemory (needs an account) and Cognee (uses your plan's limits or an API key): add `--skip supermemory,cognee` to leave them out |
 | `--only rtk,caveman` | Just these tools |
 | `--skip graphify` | Leave tools out (and anything that needs them) |
 | `--install-missing` | Install missing prerequisites without asking |
-| `--caveman-mode lite` | Caveman strength: lite, full, ultra |
+| `--caveman-mode lite` | Caveman strength: lite, full (default), ultra (fragments only) |
 | `--handoff 500k` | Model pilot: when to offer a fresh chat (`auto`, `250k`, `500k`, `750k`, `never`) |
 | `--report week` | Token report: `week`, `fortnight`, `month` (default) or `off` |
 | `--list` | Print the catalogue and exit |
@@ -113,7 +113,7 @@ Pick the tiers you want; `--list` prints every tool.
 | core | Token measuring | A record of every turn's tokens, a 30-day baseline, and a weekly, fortnightly or monthly report | — |
 | core | Rules file + guides | Tells Claude when to use each tool you installed | 4 placeholders |
 | guard | Deny rules | Claude can never read `.env`, `~/.ssh`, `~/.aws`, or run `git reset --hard`, `git clean` or a force push, in any permission mode | — |
-| guard | Bash sandbox (macOS, Linux) | Claude Code's own sandbox: shell commands write only inside the project. Off unless ticked | macOS, Linux, WSL2 |
+| guard | Bash sandbox | Claude Code's own sandbox: shell commands write only inside the project. Off unless ticked | macOS |
 | guard | Done checks | After each edit runs the project's `.claude/lint`; before finishing runs `.claude/verify` (your tests). A failure sends Claude back to fix it | A `.claude/verify` per project |
 | memory | Supermemory | Remembers decisions across chats | Supermemory account |
 | memory | Cognee (local) | Private knowledge map of your chats, on your computer; Claude and Codex can share it | Your Claude plan (no key) or an LLM API key (paid per use); Python 3.10+ |
@@ -165,7 +165,7 @@ A mod for Claude Code on macOS, in [`mods/model-pilot`](mods/model-pilot/README.
 
 - **Judges, in order:** Jev if you have it, then Haiku, then built-in rules. Privacy mode uses the rules only.
 - **Fresh chat offer.** At a chat size you choose (the installer asks: auto, 250k, 500k, 750k or never) it offers to write a summary so you can continue in a new chat. It only offers.
-- **Only one model selector at a time.** If another one is on, the installer asks before switching it off.
+- **Only one model selector at a time.** If another one is on, the installer asks before switching it off. With no one to ask (`--yes`, `--tiers`), it leaves Model pilot out instead.
 - **Accuracy, cost and limits:** [`mods/model-pilot/README.md`](mods/model-pilot/README.md).
 
 ## What it changes on your computer
@@ -190,14 +190,14 @@ How it counts, and what is measured versus estimated: [docs/token-report.md](doc
 
 ## Weekly setup scorecard and house rules
 
-Every Monday at 08:15 a job scores the last week of your setup (cost per turn, start-up load, corrections, tool errors, hook health) against your own 4-week median and writes a short report to `~/.claude/monitor/reports/`. It also proposes **house rules** from your own words in past chats, for example "never make UI look AI-generated". Nothing becomes a rule until you approve it:
+Every Monday at 08:15 a job scores the last week of your setup (cost per turn, start-up load, corrections, tool errors, hook health) against your own 4-week median and writes a short report to `~/.claude/monitor/reports/`. It runs whatever you chose for the token report, including off. It also proposes **house rules** from your own words in past chats, for example "never make UI look AI-generated". Nothing becomes a rule until you approve it:
 
 ```
 python3 ~/.claude/monitor/bin/house-rules.py review
 python3 ~/.claude/monitor/bin/house-rules.py approve <id>
 ```
 
-Approved rules come back only when they fit the prompt, and are silent otherwise. Design: [docs/setup-monitor-design.md](docs/setup-monitor-design.md).
+Approved rules come back only when they fit the prompt, and are silent otherwise.
 
 ## What it costs to run
 
