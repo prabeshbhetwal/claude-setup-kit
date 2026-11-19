@@ -174,10 +174,11 @@ A mod for Claude Code on macOS, in [`mods/model-pilot`](mods/model-pilot/README.
 - **The kit's own scripts** go to `~/.local/bin` and `~/.claude/hooks`. A differing file is backed up to `*.bak-kit-<time>` first.
 - **Your own docs are never overwritten.** If `CLAUDE.md`, a guide or an agent already exists and differs, the kit's version lands next to it as `*.kit-new`.
 - **`~/.claude/settings.json` is merged, never replaced.** Backed up to `settings.json.bak-kit-<time>` first. Only missing hooks and env keys are added.
-- **Token report**: a launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.token-report.plist`) that checks daily at 09:00 and writes a report when your chosen period ends; nothing is scheduled if you chose off. A Stop hook (`token-ledger.py`) adds one line per finished turn to `~/.claude/cache/token-compare/ledger.jsonl`.
+- **Token report**: a launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.token-report.plist`) that checks daily at 09:00 and writes a report when your chosen period ends; no daily job if you chose off. A Stop hook (`token-ledger.py`) adds one line per finished turn to `~/.claude/cache/token-compare/ledger.jsonl`.
+- **Weekly scorecard**: a second launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.setup-monitor.plist`) that runs Mondays at 08:15, whatever you chose for the token report, and writes to `~/.claude/monitor/`.
 - **A record** of what was installed in `~/.claude/kit/installed`; the doctor checks exactly that list.
 
-To undo a change: restore the `*.bak-kit-<time>` copy next to the file, remove the plugin with `claude plugin uninstall <name>`, and delete the launchd agent or scheduled task.
+To undo a change: restore the `*.bak-kit-<time>` copy next to the file, remove the plugin with `claude plugin uninstall <name>`, and remove the launchd agents (`launchctl bootout gui/$(id -u)/com.claude-setup-kit.token-report`, the same with `.setup-monitor`, then delete the two plists in `~/Library/LaunchAgents`).
 ## Token report
 
 The installer records your last 30 days of Claude Code use as a baseline, then a hook writes one line per finished turn: tokens used and tokens saved. A report arrives weekly, fortnightly or monthly (your choice at install; off is allowed), and a macOS notification says when it is ready. Everything runs locally and uses no Claude tokens.
