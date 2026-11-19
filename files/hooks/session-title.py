@@ -24,6 +24,7 @@ import sys
 CONF = pathlib.Path.home() / ".claude" / "kit" / "session-title.json"
 SPELLING = {"au": "Australian English (-ise not -ize), ", "us": "American English (-ize not -ise), ", "none": ""}
 TOOL = "set_session_title"
+MAX_MISSES = 2  # unanswered requests in a row before the hook goes quiet for the session (no title tool)
 STATE_DIR = pathlib.Path.home() / ".claude" / "cache" / "session-title"
 
 
@@ -95,6 +96,9 @@ def title_set_since(path, offset):
 def on_prompt(data, state):
     recheck, spelling = settings()
     state["count"] = state.get("count", 0) + 1
+    if state.get("misses", 0) >= MAX_MISSES:  # no title tool here (command line): stop asking this session
+        state["pending"] = False
+        return None
     tpath = data.get("transcript_path", "")
     title = current_title(tpath)
     if not title or title != state.get("ours"):
@@ -143,6 +147,10 @@ def on_stop(data, state):
     title = title_set_since(data.get("transcript_path", ""), state.get("offset", 0))
     spelling = settings()[1]
     issues = problems(title, spelling) if title else ["requested this turn but not set"]
+    state["misses"] = 0 if title else state.get("misses", 0) + 1
+    if not title and state["misses"] >= MAX_MISSES:
+        state["pending"] = False  # never block where the tool does not exist
+        return None
     if not issues:
         state.update(pending=False, ours=title)
         return None
@@ -165,7 +173,9 @@ def selftest():
     out = on_prompt({"transcript_path": "/nonexistent"}, st)  # no title yet -> asks, and marks the turn pending
     assert "set this session's title" in out["hookSpecificOutput"]["additionalContext"] and st["pending"]
     assert on_stop({"transcript_path": "/nonexistent"}, st)["decision"] == "block"  # asked, never set -> blocked once
-    assert on_stop({"transcript_path": "/nonexistent", "stop_hook_active": True}, st) is None  # second time: let through
+    assert on_stop({"transcript_path": "/nonexistent", "stop_hook_active": True}, st) is None  # second miss: let through
+    assert on_prompt({"transcript_path": "/nonexistent"}, st) is None  # two misses: quiet for the session
+    assert on_stop({"transcript_path": "/nonexistent"}, st) is None
     print("selftest ok")
 
 

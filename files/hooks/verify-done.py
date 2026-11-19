@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Automatic "done" checks, per project. Does nothing until a project opts in.
+"""Automatic "done" checks, per project. Does nothing until you allow a project, so a cloned repo you do not
+trust can never get its own scripts run by shipping a .claude/verify or .claude/lint.
 
   PostToolUse (Edit|Write|MultiEdit):  verify-done.py edit  -> runs <project>/.claude/lint FILE
   Stop:                                verify-done.py stop  -> runs <project>/.claude/verify, only if Claude edited files this turn
+  verify-done.py allow [DIR]           allow checks in DIR (default: this folder); listed in ~/.claude/kit/verify-projects
+  verify-done.py list                  the allowed projects
   verify-done.py selftest
 
 A check is the first of: .claude/<name> (executable), .claude/<name>.sh.
@@ -20,6 +23,27 @@ import tempfile
 STATE = os.path.join(tempfile.gettempdir(), "claude-verify-done")
 TAIL = 40
 MAX_RETRIES = 3
+
+
+def allow_file():
+    return os.environ.get("KIT_VERIFY_ALLOW") or os.path.expanduser("~/.claude/kit/verify-projects")
+
+
+def allowed():
+    try:
+        return {line.strip() for line in open(allow_file()) if line.strip()}
+    except OSError:
+        return set()
+
+
+def allow(d):
+    d = os.path.realpath(d)
+    if d in allowed():
+        return print(f"already allowed: {d}")
+    os.makedirs(os.path.dirname(allow_file()), exist_ok=True)
+    with open(allow_file(), "a") as f:
+        f.write(d + "\n")
+    print(f"done checks allowed in {d} (its .claude/verify and .claude/lint will run)")
 
 
 def find(project, name):
@@ -49,6 +73,8 @@ def fail(label, code, out):
 
 def main(mode, data, state=STATE):
     project = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd()
+    if os.path.realpath(project) not in allowed():
+        return 0  # not allowed: never run a project's own scripts unasked
     sid = str(data.get("session_id") or "nosession").replace(os.sep, "_")
     os.makedirs(state, exist_ok=True)
     edited, tries = os.path.join(state, sid + ".edited"), os.path.join(state, sid + ".tries")
@@ -87,7 +113,14 @@ def selftest():
     st = os.path.join(d, "state")
     os.makedirs(os.path.join(d, ".claude"))
     os.environ["CLAUDE_PROJECT_DIR"] = d
+    os.environ["KIT_VERIFY_ALLOW"] = os.path.join(d, "allow")
     ev = {"session_id": "s1"}
+    open(os.path.join(d, ".claude", "verify.sh"), "w").write("exit 1\n")
+    main("edit", ev, st)
+    assert main("stop", ev, st) == 0, "a project not allowed never runs its checks"
+    os.remove(os.path.join(d, ".claude", "verify.sh"))
+    allow(d)
+    assert os.path.realpath(d) in allowed()
     assert main("stop", ev, st) == 0, "no edits -> no check"
     assert main("edit", {**ev, "tool_input": {"file_path": "x.py"}}, st) == 0, "no lint -> pass"
     assert main("stop", ev, st) == 0, "no verify -> pass"
@@ -110,6 +143,11 @@ def selftest():
 if __name__ == "__main__":
     if sys.argv[1:] == ["selftest"]:
         selftest()
+        sys.exit(0)
+    if sys.argv[1:2] == ["allow"]:
+        sys.exit(allow(sys.argv[2] if len(sys.argv) > 2 else os.getcwd()))
+    if sys.argv[1:2] == ["list"]:
+        print("\n".join(sorted(allowed())) or "no projects allowed yet")
         sys.exit(0)
     try:
         payload = json.load(sys.stdin)

@@ -172,7 +172,24 @@
       "Bash(git push --force *)",
       "Bash(git push * --force)",
       "Bash(git push -f *)",
-      "Bash(git push * -f)"
+      "Bash(git push * -f)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.netrc)",
+      "Bash(git push * --force *)",
+      "Bash(git push * -f *)",
+      "Bash(git push * +*)",
+      "Bash(git -C * reset --hard*)",
+      "Bash(git -C * push --force*)",
+      "Bash(git -C * push -f*)",
+      "Bash(git checkout -- .)",
+      "Bash(git restore .)",
+      "Bash(git stash clear)",
+      "Bash(security find-generic-password *)",
+      "Bash(security find-internet-password *)"
     ]
   },
   "sandbox": {

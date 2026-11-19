@@ -147,15 +147,17 @@ MAX_RULES, MAX_CHARS, JEV_TIMEOUT = 4, 600, 1.5
 
 def jev_probs(site, question, items, context, timeout=JEV_TIMEOUT):
     """Jev P(yes) per item within `timeout` seconds; None when Jev is off, slow or refuses."""
-    import concurrent.futures
     import sys
     sys.path.insert(0, os.path.expanduser("~/.claude/hooks"))
     try:
         import jev_lib
-        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        fut = ex.submit(jev_lib.noul, site, question, items, context)
-        ex.shutdown(wait=False)
-        return fut.result(timeout=timeout)
+        import threading
+        out = []
+        # A daemon thread: an executor's worker is joined at exit, which held the prompt for Jev's full 3 s timeout.
+        t = threading.Thread(target=lambda: out.append(jev_lib.noul(site, question, items, context)), daemon=True)
+        t.start()
+        t.join(timeout)
+        return out[0] if out else None
     except Exception:
         return None
 

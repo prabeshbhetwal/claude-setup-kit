@@ -222,7 +222,8 @@ export function placeTip(required: Tier, runTier: Tier, i: CacheState): string |
   const here = c['in place']
   const lean = c['lean sub-agent']
   if (lean > here * 0.7 || here - lean < 0.02) return null
-  return `a lean sub-agent would cost about ${usd(lean)} against ${usd(here)} here: its ${STARTUP['lean sub-agent'] / 1000}k-token start-up is small next to re-reading this ${Math.round(i.contextTokens / 1000)}k-token chat at every step`
+  // Short on purpose: the desktop app clips a long line instead of wrapping it (keep "Tip: " + this under 60 characters).
+  return `lean sub-agent ~${usd(lean)} vs ~${usd(here)} here`
 }
 
 /** A one-line note when a sub-agent was spawned for a job that would have been cheaper in this chat; else null. */
@@ -230,7 +231,8 @@ export function spawnNote(agent: string, required: Tier, runTier: Tier, i: Cache
   const place: Place = /lean/i.test(agent) ? 'lean sub-agent' : 'all-tools sub-agent'
   const c = placeCosts(required, runTier, i)
   if (c['in place'] > c[place] * 0.7 || c[place] - c['in place'] < 0.02) return null
-  return `the ${agent} sub-agent cost about ${usd(c[place])} against ${usd(c['in place'])} in place: a ${STARTUP[place] / 1000}k-token start-up is a lot for a job this small`
+  const name = agent.length > 18 ? `${agent.slice(0, 17)}…` : agent
+  return `${name} cost ~${usd(c[place])} vs ~${usd(c['in place'])} in place`
 }
 
 // --------------------------------------------------------------- sub-agents

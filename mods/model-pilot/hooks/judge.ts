@@ -99,7 +99,7 @@ export function floorCoding(v: Verdict, prompt: string): Verdict {
 const FABLE =
   /\b(entire|whole|full)\s+(codebase|code base|repo|repository|system|platform|product)\b[^.]{0,80}\b(rewrite|redesign|re-?architect|audit|migrat|rebuild)|\b(rewrite|redesign|re-?architect|audit|rebuild)\b[^.]{0,60}\b(entire|whole|full)\s+(codebase|code base|repo|repository|system|platform)\b|\bfrom scratch\b[^.]{0,80}\b(production|end[- ]to[- ]end|complete (system|product|platform))\b|\bmulti-?(day|hour)\b/i
 const HARD =
-  /\b(root[- ]cause|race condition|dead-?lock|memory leak|heisenbug|intermittent(ly)?|flak(y|ey|iness)|sporadic|non-?deterministic|architect(ure|ural)?|system design|data[- ]model|schema design|api design|design (a|an|the|our|my)\b|threat model|security (review|audit|hole|flaw)|vulnerab\w*|exploit\w*|pen-?test|auth(entication|orization)? (flow|bypass|design)|trade-?offs?|strategy|strategic|roadmap|migrat(e|ion|ing)|backwards?[- ]compat\w*|concurren\w*|thread[- ]safe|distributed|consensus|consisten(t|cy) (model|guarantee)|performance (regression|problem|issue)|bottleneck|profil(e|ing)|scal(e|ing|ability)|prove|proof|algorithm|complexity|optimal|cross-cutting|across (the|all|many) (codebase|services|modules|files)|unknown cause|can'?t (figure|work) out|no idea why|stuck on|keeps? (failing|crashing|breaking)|still (broken|failing|not working)|second opinion|post-?mortem|incident)(s|es|ed|ing)?\b|\b(is|are|whether)\b[^.?]{0,140}\b(safe|secure|correct|sound)\b|\bwhy\b[^?.]{0,80}\b(fail|crash|slow|hang|leak|break|wrong|stuck|timeout|time out|drop|corrupt|lose|lost|duplicate)/i
+  /\b(root[- ]cause|race condition|dead-?lock|memory leak|heisenbug|intermittent(ly)?|flak(y|ey|iness)|sporadic|non-?deterministic|architect(ure|ural)?|system design|data[- ]model|schema design|api design|design (a|an|the|our|my) (system|architecture|api|schema|data ?base|service|protocol|pipeline)\b|threat model|security (review|audit|hole|flaw)|vulnerab\w*|exploit\w*|pen-?test|auth(entication|orization)? (flow|bypass|design)|trade-?offs?|strategy|strategic|roadmap|migrat(e|ion|ing)|backwards?[- ]compat\w*|concurren\w*|thread[- ]safe|distributed|consensus|consisten(t|cy) (model|guarantee)|performance (regression|problem|issue)|bottleneck|profiling|scal(ing|ability)|prove|proof|algorithm|complexity|optimal|cross-cutting|across (the|all|many) (codebase|services|modules|files)|unknown cause|can'?t (figure|work) out|no idea why|stuck on|keeps? (failing|crashing|breaking)|still (broken|failing|not working)|second opinion|post-?mortem|incident)(s|es|ed|ing)?\b|\b(is|are|whether)\b[^.?]{0,140}\b(safe|secure|correct|sound)\b|\bwhy\b[^?.]{0,80}\b(fail|crash|slow|hang|leak|break|wrong|stuck|timeout|time out|drop|corrupt|lose|lost|duplicate)/i
 const WORK =
   /```|\b(implement|fix|refactor|add|write|create|build|update|change|modify|edit|rename|remove|delete|replace|move|extract|port|convert|upgrade|install|configure|set ?up|wire|hook up|integrate|deploy|test|tests|debug|analy[sz]e|review|compare|evaluate|plan|outline|draft|optimi[sz]e|improve|clean ?up|simplify|generate|scaffold|parse|validate|handle|support|script|function|class|component|endpoint|module|query|regex|bug|error|exception|stack ?trace|traceback|failing|broken|commit|merge|rebase|pull request|pr)\b|[\w./-]+\.(ts|tsx|js|jsx|mjs|py|rb|go|rs|java|kt|swift|c|cc|cpp|h|cs|php|sh|zsh|ps1|sql|json|ya?ml|toml|md|html|css|scss)\b/i
 const LOOKUP =
@@ -128,9 +128,11 @@ export function rulesVerdict(i: JudgeInput): Verdict {
   if (isWork && MECHANICAL.test(p) && p.length < 90) {
     return make(i.kind === 'agent' ? 'haiku' : 'sonnet', 'rules: mechanical change', 'low')
   }
-  if (LOOKUP.test(p) && p.length < 140 && !/```/.test(p)) return make('haiku', 'rules: short lookup')
+  // A request for action phrased as a question is work, not a lookup: "can you delete the old branches?".
+  const isAsk = isWork && /^\s*((can|could|would|will) you|please)\b/i.test(p)
+  if (!isAsk && LOOKUP.test(p) && p.length < 140 && !/```/.test(p)) return make('haiku', 'rules: short lookup')
   if (isWork) return make('sonnet', 'rules: scoped work', isLong ? 'high' : 'medium')
-  if (p.length < 80 && /\?\s*$/.test(p)) return make('haiku', 'rules: short question')
+  if (!isAsk && !isWork && p.length < 80 && /\?\s*$/.test(p)) return make('haiku', 'rules: short question')
   return make('sonnet', 'rules: unclassified, defaulting up')
 }
 
