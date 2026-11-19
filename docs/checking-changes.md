@@ -28,6 +28,8 @@ It takes about a minute, touches nothing of yours (every install it tries runs i
 - With the token report switched off, both jobs are still scheduled (the report job then does nothing), so `--set` can turn it back on.
 - With no terminal and no options, the installer stops instead of answering its own questions.
 
+**Proofs with stand-ins** (`lib/audit_proofs.py`, run by the audit): a fake `claude` command and a keyboard show that another model selector is switched off only after Model pilot installed (and stays on if that install fails), that a re-run refreshes the kit's own plugins, and that each per-prompt and per-command hook finishes well under a second. Each proof was checked by breaking the behaviour on purpose and watching it fail.
+
 ## How to check a change by hand
 
 These are the habits that find the problems a script cannot. They come from an outside review that found eleven real problems in the installer and README that earlier checks had missed.

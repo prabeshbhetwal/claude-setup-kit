@@ -234,6 +234,10 @@ if cfg != {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo mi
     fail("regression: uninstall must remove only the kit's entries and the script, and keep the user's hooks")
 if sh(["bash", "install.sh", "--uninstall", "session-title"], home)[1].count("removed hook"):
     fail("regression: a second uninstall must change nothing")
+pr = subprocess.run([sys.executable, os.path.join(KIT, "lib/audit_proofs.py"), KIT], capture_output=True, text=True, timeout=900)
+print(pr.stdout.strip())
+if pr.returncode:
+    fail("proofs (fake claude, keyboard, timing): " + " | ".join(l for l in pr.stdout.splitlines() if l.startswith("FAIL")))
 shutil.rmtree(T, ignore_errors=True)  # only the throwaway folder this run made
 print(f"\n{len(bad)} failing check(s)")
 sys.exit(1 if bad else 0)
