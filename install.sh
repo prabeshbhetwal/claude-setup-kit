@@ -3,10 +3,11 @@
 #
 #   ./install.sh                      explain every tool, then ask which to install (recommended)
 #   ./install.sh --yes                no questions: core tier only (no keys, no paid services)
-#   ./install.sh --tiers core,guard,memory,routing,judge,deliberation   (no questions)
+#   ./install.sh --tiers core,guard,memory,routing,judge,deliberation,extras   (no questions)
 #   ./install.sh --only caveman,rtk   just these tools (dependencies are added)
 #   ./install.sh --list               print the catalogue and exit
 # Other options: --skip id,id  --caveman-mode lite|full|ultra  --handoff auto|250k|500k|750k|never  --confirm-fable yes|no
+#   --title-recheck N  --title-spelling au|us|none   session titles: prompts between checks (default 5), spelling (default au)
 #   --report week|fortnight|month|off   how often the token report runs (default month)
 #   --install-missing   install missing prerequisites (Homebrew, Node.js, uv, Claude Code CLI) without asking
 #
@@ -19,11 +20,11 @@ CL="$HOME/.claude"
 BIN="$HOME/.local/bin"
 TS=$(date +%Y%m%d-%H%M%S)
 CAT="$KIT/lib/catalog.txt"
-TIERS_ALL="core guard memory routing judge deliberation"
+TIERS_ALL="core guard memory routing judge deliberation extras"
 SELECTED=" "
 TODO=""
 FAILED=""
-MODE=ask; TIERS=""; ONLY=""; SKIP=""; HANDOFF=""; CONFIRM_FABLE=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
+MODE=ask; TIERS=""; ONLY=""; SKIP=""; TITLE_RECHECK=""; TITLE_SPELLING=""; HANDOFF=""; CONFIRM_FABLE=""; REPORT=""; PILOT_OFF=""; CAVEMODE=""; INSTALL_MISSING=""
 TTY=0; { : </dev/tty; } 2>/dev/null && TTY=1   # a keyboard to answer questions on
 
 say()  { printf '%s\n' "$*"; }
@@ -51,6 +52,8 @@ while [ $# -gt 0 ]; do
     --tiers) val "$1" "${2:-}"; TIERS=$(csv "$2"); MODE=yes; shift ;;
     --only) val "$1" "${2:-}"; ONLY=$(csv "$2"); shift ;;
     --skip) val "$1" "${2:-}"; SKIP=$(csv "$2"); shift ;;
+    --title-recheck) val "$1" "${2:-}"; TITLE_RECHECK=$2; shift ;;
+    --title-spelling) val "$1" "${2:-}"; TITLE_SPELLING=$2; shift ;;
     --caveman-mode) val "$1" "${2:-}"; CAVEMODE=$2; shift ;;
     --handoff) val "$1" "${2:-}"; HANDOFF=$2; shift ;;
     --confirm-fable) val "$1" "${2:-}"; CONFIRM_FABLE=$2; shift ;;
@@ -123,6 +126,7 @@ tier_title() {
     memory) echo "MEMORY: Claude remembers past chats and decisions. No key needed here (Supermemory, which needs an account, was in the first group)." ;;
     routing) echo "MODEL ROUTING: uses cheaper models where they do the job just as well. Free." ;;
     judge) echo "JUDGE TOOLS: fast outside yes/no checks over long lists and media. Need API keys (one paid, one with a free tier)." ;;
+    extras) echo "EXTRAS: optional comforts, none of them needed. Free." ;;
     deliberation) echo "PLAN CHECKS: test a plan before you build it. Free (Deliberation, which needs other AI accounts, was in the first group)." ;;
   esac
 }
@@ -175,6 +179,17 @@ if has caveman && [ -z "$CAVEMODE" ]; then
     CAVEMODE=${CAVEMODE:-full}
   fi
 fi
+if has session-title; then
+  case "$TITLE_RECHECK" in ''|*[!0-9]*|0) [ -z "$TITLE_RECHECK" ] || info "Title check '$TITLE_RECHECK' is not a number of prompts: using 5"; TITLE_RECHECK=5 ;; esac
+  if [ -z "$TITLE_SPELLING" ]; then
+    TITLE_SPELLING=au
+    if [ "$MODE" = ask ] && { : </dev/tty; } 2>/dev/null; then
+      printf '\n  Session titles: spelling au (Australian, -ise), us (American, -ize) or none. [au] '; read -r TITLE_SPELLING </dev/tty
+      TITLE_SPELLING=${TITLE_SPELLING:-au}
+    fi
+  fi
+  case "$TITLE_SPELLING" in au|us|none) ;; *) info "Title spelling '$TITLE_SPELLING' not known: using au"; TITLE_SPELLING=au ;; esac
+fi
 case "$CAVEMODE" in ''|lite|full|ultra) ;; *) info "Caveman mode '$CAVEMODE' not known: using full"; CAVEMODE=full ;; esac
 
 # ---------------------------------------------------------------- the changes, each asked for first (--yes: all yes)
@@ -186,11 +201,11 @@ if has rules; then
   [ -f "$CL/CLAUDE.md" ] && say "You already have a CLAUDE.md: it is kept as it is, and the kit's version is saved next to it as CLAUDE.md.kit-new for you to merge."
   ask "Write the rules file and guides?" y || { drop rules; info "rules file left out"; }
 fi
-for id in rtk safety indexes routing cognee jev measure guard sandbox verify; do
+for id in rtk safety indexes routing cognee jev measure guard sandbox verify session-title; do
   has $id || continue
   say ""
   say "Hooks: small scripts Claude Code runs at set moments (when a chat starts, before a shell command)."
-  say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules and done checks only work through them. They are added to"
+  say "RTK, safe delete, auto indexes, the routing card, the per-turn token record, deny rules, done checks and session titles only work through them. They are added to"
   say "~/.claude/settings.json: the file is backed up first, nothing in it is removed or changed, only missing entries are added."
   ask "Add the kit's hooks to settings.json?" y || { DO_SETTINGS=0; info "hooks not added: those tools stay installed but inactive until you re-run and say yes"; }
   break
@@ -438,6 +453,13 @@ fi
 if has verify; then
   copy_file "$KIT/files/hooks/verify-done.py" "$CL/hooks/verify-done.py" exec replace
   todo "Done checks: in each project you want checked, add an executable .claude/verify (e.g. '#!/bin/sh' then 'npm test --silent'); optionally .claude/lint, which gets the edited file's path."
+fi
+if has session-title; then
+  copy_file "$KIT/files/hooks/session-title.py" "$CL/hooks/session-title.py" exec replace
+  mkdir -p "$CL/kit"
+  if [ -f "$CL/kit/session-title.json" ]; then ok "kept existing $(short "$CL/kit/session-title.json")"
+  else printf '{"recheck": %s, "spelling": "%s"}\n' "${TITLE_RECHECK:-5}" "${TITLE_SPELLING:-au}" > "$CL/kit/session-title.json" && ok "session titles: check every ${TITLE_RECHECK:-5} prompts, $TITLE_SPELLING spelling (edit $(short "$CL/kit/session-title.json"))"; fi
+  todo "Session titles: they need the Claude desktop app. The Claude Code command line alone has no title tool, so the hook does nothing there."
 fi
 if has indexes; then
   copy_file "$KIT/files/hooks/ensure-indexes.sh" "$CL/hooks/ensure-indexes.sh" exec replace

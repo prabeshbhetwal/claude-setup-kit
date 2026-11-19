@@ -200,5 +200,23 @@
         "match": "verify-done.py\" stop"
       }
     ]
+  },
+  "session-title": {
+    "hooks": [
+      {
+        "event": "UserPromptSubmit",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/session-title.py\" prompt",
+        "timeout": 15,
+        "match": "session-title.py\" prompt"
+      },
+      {
+        "event": "Stop",
+        "type": "command",
+        "command": "python3 \"$HOME/.claude/hooks/session-title.py\" stop",
+        "timeout": 15,
+        "match": "session-title.py\" stop"
+      }
+    ]
   }
 }

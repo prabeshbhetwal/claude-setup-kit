@@ -90,6 +90,11 @@ if has verify; then
   hook_on PostToolUse "verify-done.py" "lint after each edit"
   hook_on Stop "verify-done.py" "done check before finishing"
 fi
+if has session-title; then
+  selftest python3 "$CL/hooks/session-title.py" selftest
+  hook_on UserPromptSubmit "session-title.py" "session title request"
+  hook_on Stop "session-title.py" "session title check before finishing"
+fi
 if has indexes; then
   [ -f "$CL/hooks/ensure-indexes.sh" ] && pass "ensure-indexes.sh" || fail "ensure-indexes.sh missing"
   selftest python3 "$CL/hooks/codegraph-gate.py" --test

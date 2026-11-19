@@ -23,7 +23,7 @@ You need the Claude app (or a Claude Code plan) and an internet connection. Ever
 ## What happens when you run it, step by step
 
 1. **It asks first about the tools that need an API key or an account** (Supermemory, Jev, mjudge, Deliberation), in one checkbox list, so no key comes as a surprise later. Each says which key it needs and what it costs. Supermemory starts ticked; the others start unticked.
-2. **Then it explains the other groups** ("tiers"): core, safety rules and checks (guard), memory, model routing, judge tools, plan checks. For every tool you see what it does, how it helps you, what it needs, and its licence.
+2. **Then it explains the other groups** ("tiers"): core, safety rules and checks (guard), memory, model routing, judge tools, plan checks, extras. For every tool you see what it does, how it helps you, what it needs, and its licence.
 3. **You tick what you want.** Each group shows a checkbox list:
    ```
      [x] 1. Caveman
@@ -88,10 +88,11 @@ Pick the tiers you want; `--list` prints every tool.
 | Option | What it does |
 |---|---|
 | `--yes` | No questions: core tier only |
-| `--tiers core,memory` | No questions: every tool in these tiers (`core guard memory routing judge deliberation`). `memory` includes Supermemory (needs an account) and Cognee (uses your plan's limits or an API key): add `--skip supermemory,cognee` to leave them out |
+| `--tiers core,memory` | No questions: every tool in these tiers (`core guard memory routing judge deliberation extras`). `memory` includes Supermemory (needs an account) and Cognee (uses your plan's limits or an API key): add `--skip supermemory,cognee` to leave them out |
 | `--only rtk,caveman` | Just these tools |
 | `--skip graphify` | Leave tools out (and anything that needs them) |
 | `--install-missing` | Install missing prerequisites without asking |
+| `--title-recheck 5`, `--title-spelling au` | Session titles: prompts between title checks (default 5), spelling `au` (default), `us` or `none` |
 | `--caveman-mode lite` | Caveman strength: lite, full (default), ultra (fragments only) |
 | `--handoff 500k` | Model pilot: when to offer a fresh chat (`auto`, `250k`, `500k`, `750k`, `never`) |
 | `--report week` | Token report: `week`, `fortnight`, `month` (default) or `off` |
@@ -123,6 +124,7 @@ Pick the tiers you want; `--list` prints every tool.
 | routing | Model badge (macOS only) | A label with the model name beside each helper agent's row | Recent Claude Code |
 | judge | Jev | Fast yes/no triage over long lists | TypeSafe key (paid) |
 | judge | mjudge | Yes/no/score over images, video, audio, PDFs | Gemini key (free tier) |
+| extras | Dynamic session titles | Keeps each chat's title a short label of what you are doing now (1 to 4 words) and renames it as the work moves on. Spelling: Australian (default), American or none. Never changes a title you typed without asking you | The Claude desktop app |
 | deliberation | Deliberation | Other AI models (GPT, Gemini, Grok, OpenRouter) judge a plan: a second opinion or a debate | One provider account |
 | deliberation | Grill Me | `/grill-me`: Claude questions you about your own plan, one hard question at a time; `/grill-with-docs` also records decisions | Node.js |
 
@@ -176,6 +178,7 @@ A mod for Claude Code on macOS, in [`mods/model-pilot`](mods/model-pilot/README.
 - **`~/.claude/settings.json` is merged, never replaced.** Backed up to `settings.json.bak-kit-<time>` first. Only missing hooks and env keys are added.
 - **Token report**: a launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.token-report.plist`) that checks daily at 09:00 and writes a report when your chosen period ends; no daily job if you chose off. A Stop hook (`token-ledger.py`) adds one line per finished turn to `~/.claude/cache/token-compare/ledger.jsonl`.
 - **Weekly scorecard**: a second launchd agent (`~/Library/LaunchAgents/com.claude-setup-kit.setup-monitor.plist`) that runs Mondays at 08:15, whatever you chose for the token report, and writes to `~/.claude/monitor/`.
+- **Session titles** (only if ticked): `~/.claude/hooks/session-title.py`, its settings in `~/.claude/kit/session-title.json`, and two hook entries in `settings.json`; per-chat notes go in `~/.claude/cache/session-title/`.
 - **A record** of what was installed in `~/.claude/kit/installed`; the doctor checks exactly that list.
 
 To undo a change: restore the `*.bak-kit-<time>` copy next to the file, remove the plugin with `claude plugin uninstall <name>`, and remove the launchd agents (`launchctl bootout gui/$(id -u)/com.claude-setup-kit.token-report`, the same with `.setup-monitor`, then delete the two plists in `~/Library/LaunchAgents`).
@@ -188,6 +191,10 @@ The installer records your last 30 days of Claude Code use as a baseline, then a
 - Your own numbers over 30 days: `python3 ~/.claude/hooks/token-scorecard.py 30`
 
 How it counts, and what is measured versus estimated: [docs/token-report.md](docs/token-report.md). The author's own numbers: [docs/measurements.md](docs/measurements.md).
+
+## Why a new chat starts with tokens already used
+
+See [docs/context-overhead.md](docs/context-overhead.md): what each row of `/context` is, and which changes actually shrink it.
 
 ## Weekly setup scorecard and house rules
 
@@ -208,12 +215,14 @@ Approved rules come back only when they fit the prompt, and are silent otherwise
 | memory | Supermemory: account required (pricing not checked by this kit). Cognee: with no key it runs through the `claude` command on your Claude plan and counts towards its usage limits; with an `LLM_API_KEY` in `~/.cognee/.env` every saved turn is billed per use on that account (set a monthly spend limit in the provider console). remember: free |
 | routing | Routing card and agents: free. Model pilot: one small judge call per judged prompt, on your Claude plan with Haiku (a fraction of a cent) or on your TypeSafe account with Jev |
 | judge | TypeSafe: paid account (pricing not checked). Gemini: free tier available; free-tier inputs may be used for training |
+| extras | Session titles: free; about 150 tokens every fifth prompt (set by `--title-recheck`) |
 | deliberation | Each second opinion uses that provider's tokens or plan (ChatGPT/Codex, Gemini, xAI, OpenRouter) |
 
 ## Known limits
 
 - **Tested on macOS only.** Windows and Linux are not supported: `install.sh` stops unless `KIT_ALLOW_NON_MAC=1` is set (untested).
 - **Model pilot is macOS only and adds a short wait.** A judged prompt waits for the judge before its first token. Follow-ups and prompts where you chose the model are not judged. Its savings are estimates.
+- **Session titles need the Claude desktop app.** They call the app's session-title tool, so in the command line alone they do nothing. The spelling check catches common patterns only (`-ize`, `color`, `behavior` and similar), and whether a title fits the work is only prompted, not checked. Settings live in `~/.claude/kit/session-title.json`; to remove the tool, delete `~/.claude/hooks/session-title.py` and its two hook entries in `settings.json`.
 - **Index hooks skip small repos.** They only build indexes for git repos with 10 or more source files, and never for your home folder.
 - **Licences of the installed tools differ.** context-mode is Elastic-2.0, so it cannot be offered as a managed service. RTK's default build includes a BUSL-1.1 engine, free for your own use; `RTK_EDITION=oss` gives the Apache-2.0-only build. remember uses a community licence with no commercial redistribution. The rest are MIT or Apache-2.0.
 
