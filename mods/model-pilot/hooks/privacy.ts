@@ -18,7 +18,7 @@ export function isPrivateFolder(cwd: string, list: string, home: string): boolea
 }
 
 // Each argument as the file system resolves it (symlinks, /var and /private/var); one that does not resolve stays as written.
-const REAL = 'for p; do (cd "$p" 2>/dev/null && pwd -P) || printf "%s\\n" "$p"; done'
+const REAL = 'for p; do (cd "$p" 2>/dev/null && pwd -P) || echo "?"; done'
 
 /** Privacy mode, or the session's folder under a listed one, compared as written and as resolved on both sides. */
 export async function isPrivateHere($: EngineInterface, o: Pick<Options, 'privacy' | 'privateFolders'>): Promise<boolean> {
@@ -30,6 +30,7 @@ export async function isPrivateHere($: EngineInterface, o: Pick<Options, 'privac
   const list = folderList(o.privateFolders, home)
   const r = await $.process.run(['/bin/sh', '-c', REAL, 'sh', cwd, ...list], { timeoutMs: 3000 }).catch(() => undefined)
   const real = (r?.stdout ?? '').split('\n').filter(Boolean)
-  if (real.length !== list.length + 1) return true // could not resolve: fail closed, use the local rules only
-  return isPrivateFolder(real[0] ?? '', real.slice(1).join('\n'), home)
+  if (real.length !== list.length + 1 || real[0] === '?') return true // the session's folder cannot be resolved: fail closed, local rules only
+  // A listed folder that does not exist cannot hide behind a link: keep it as written.
+  return isPrivateFolder(real[0] ?? '', real.slice(1).map((r, i) => (r === '?' ? (list[i] ?? '') : r)).join('\n'), home)
 }

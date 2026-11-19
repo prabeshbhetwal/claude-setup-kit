@@ -101,6 +101,10 @@ test('private folders compare real paths on both sides, so a symlink cannot rout
   expect(await isPrivateHere(elsewhere.$, { privacy: false, privateFolders: '~/client' })).toBe(false)
   const broken = fake(() => { throw new Error('no shell') }, '/home/u/client/x')
   expect(await isPrivateHere(broken.$, { privacy: false, privateFolders: '~/client' })).toBe(true) // as written still counts
+  const unresolved = fake(() => ({ stdout: '?\n/private/var\n' }), '/var/x') // the shell ran but could not resolve the session folder
+  expect(await isPrivateHere(unresolved.$, { privacy: false, privateFolders: '/private/var' })).toBe(true)
+  const missing = fake(() => ({ stdout: '/home/u/other\n?\n' }), '/home/u/other') // a listed folder that does not exist stays as written
+  expect(await isPrivateHere(missing.$, { privacy: false, privateFolders: '~/gone' })).toBe(false)
   const alias = fake(() => { throw new Error('no shell') }, '/var/x')
   expect(await isPrivateHere(alias.$, { privacy: false, privateFolders: '/private/var' })).toBe(true) // cannot resolve: fail closed, rules only
 })

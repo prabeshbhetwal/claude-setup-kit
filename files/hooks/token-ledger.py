@@ -201,10 +201,10 @@ def earlier(ledger, session, start):
     s = {"by_model": {}}
     for raw in tail(ledger, 4 << 20) if os.path.exists(ledger) else []:  # a prompt's earlier lines are recent
         try:
-            d = json.loads(raw) if start in raw else {}
+            d = json.loads(raw) if start[:19] in raw else {}  # first 19 characters: the second, shared with older rows
         except ValueError:
             d = {}
-        if d.get("session") == session and d.get("start") == start:
+        if d.get("session") == session and d.get("start") in (start, start[:19] + "Z"):  # older rows keep the second only
             for k in SUMS:
                 if d.get(k) is not None:
                     s[k] = s.get(k, 0) + d[k]
@@ -276,6 +276,9 @@ def selftest():
         assert (more["requests"], more["context"], more["output"], more["by_model"]) == (1, 100, 3, {"sonnet": 100}), more
         rows2 = [json.loads(x) for x in open(led2)]
         assert len(rows2) == 2 and sum(r["context"] for r in rows2) == 1615 and sum(r["requests"] for r in rows2) == 4
+        led3 = os.path.join(d, "ledger3.jsonl")  # rows written before the full-precision key keep only the second
+        open(led3, "w").writelines(json.dumps(dict(r, start=r["start"][:19] + "Z")) + "\n" for r in rows2)
+        assert record("S", tr, when("2026-12-05T02:01:50Z"), d, led3, db, plog) is None, "an older row must still match its prompt"
         # no typed prompt anywhere: the backward window stops at MAX_WINDOW instead of reading the whole file
         big = os.path.join(d, "big.jsonl")
         open(big, "w").write((J(type="assistant", timestamp="2026-12-05T02:00:05Z", message={"id": "x"}) + "\n") * 4000)

@@ -166,7 +166,7 @@ const NAMED_TIER = new RegExp(
 )
 const LEADING_TIER = new RegExp(`^\\s*@?${TIER_WORD}\\s*[:,]\\s`, 'i')
 const ANY_TIER = new RegExp(`\\b${TIER_WORD}\\b`, 'gi')
-const NEGATED = /\b(?:don['’]?t|do not|never|not|no|avoid|stop|instead of|rather than)(?:\s+ever)?\s*$/i
+const NEGATED = /\b(?:don['’]?t|do not|never|not|no|avoid|stop|instead of|rather than)(?:\s+ever)?(?:\s+(?:with|using|on|via|to))?\s*$/i
 
 /**
  * The tier one part of a prompt directs, adding every negated tier to `negated`. A bare
