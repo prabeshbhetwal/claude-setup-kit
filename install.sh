@@ -290,8 +290,8 @@ if has jev && [ -z "$JEV_SHARE" ]; then
       ask "  Model pilot: send up to 3,000 characters of each prompt, a short digest of recent turns and each helper agent's task, to pick the model?" n && JEV_SHARE="$JEV_SHARE pilot"
     fi
     if has measure; then
-      ask "  House rules: send the first 200 characters of a prompt (emails, links, paths removed) when a saved rule might fit?" n && JEV_SHARE="$JEV_SHARE recall"
-      ask "  House rules: on Mondays, send last week's sentences where you corrected Claude (redacted), to find preferences?" n && JEV_SHARE="$JEV_SHARE mine"
+      ask "  House rules: when a saved rule might fit a prompt, send its first 200 characters (emails, links, paths removed) with up to eight of your saved rules?" n && JEV_SHARE="$JEV_SHARE recall"
+      ask "  House rules: on Mondays, send the last eight days of your sentences that correct Claude or state a UI preference (redacted), to find preferences?" n && JEV_SHARE="$JEV_SHARE mine"
     fi
     if has indexes; then
       ask "  Code search: send the first 3,000 characters of a prompt to decide whether it is about code (without it a local word check decides)?" n && JEV_SHARE="$JEV_SHARE code"
@@ -667,7 +667,11 @@ if fable == "no":
     want["confirmFable"] = False
 if want != opts:
     if os.path.exists(path):
-        shutil.copy2(path, f"{path}.bak-kit-{ts}")
+        n, bak = 1, f"{path}.bak-kit-{ts}"
+        while os.path.exists(bak):  # never replace the pre-install copy
+            n += 1
+            bak = f"{path}.bak-kit-{ts}-{n}"
+        shutil.copy2(path, bak)
     opts.clear(); opts.update(want)
     import tempfile
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))

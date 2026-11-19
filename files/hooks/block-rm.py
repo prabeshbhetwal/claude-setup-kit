@@ -48,6 +48,9 @@ def is_temp(path):
 
 
 def blocked(command):
+    plain = re.sub(r"[\"'\\]", "", command)  # r''m, "r"m and r\m are rm to the shell
+    if plain != command and RM.search(plain) and not RM.search(command):
+        return True  # an rm that only appears once quotes are removed: written to be missed
     for m in RM.finditer(command):
         quote = command[m.start(1) - 1] if m.start(1) and command[m.start(1) - 1] in "\"'" else ""
         segment = re.split(r"[;&|)\n" + quote + "]", command[m.start(1):], maxsplit=1)[0]  # not at ` or }: later targets must stay checked  # bash -c "rm x": stop at the quote
@@ -130,6 +133,8 @@ def test():
     assert not blocked(f"rm {d}/plain.txt")
     assert blocked("rm -rf /tmp/build-`id -u` /etc/project"), "a backtick must not hide the targets after it"
     assert blocked("rm -rf /tmp/{a,b} /etc/x")
+    assert blocked("r''m important.txt") and blocked('"r"m x') and blocked("r\\m x") and blocked("'rm' x")
+    assert not blocked("echo 'it''s fine'") and not blocked('git commit -m "tidy up"')
     print("block-rm self-check: ok")
 
 

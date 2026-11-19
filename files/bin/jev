@@ -159,7 +159,7 @@ def main(argv=None) -> None:
     if a.kind == "test":
         return offline_test()
     raw = sys.stdin.read()
-    if SECRET.search(raw + a.context):
+    if SECRET.search("\n".join([raw, a.context, a.question or "", *a.opt, *a.level])):
         die("input looks like it contains a credential; refusing to send it")
     if not policy_allows(a.site, a.cwd):
         die(f"refused by ~/.claude/jev/policy.json (disabled, site {a.site!r} in sites_off, or folder in skip_paths)")
@@ -270,6 +270,18 @@ def offline_test() -> None:
         assert SECRET.search(text), text  # a value that only STARTS with digits is still a credential
     for text in ("max_tokens: 12345678", "token_count=123456789", "retries: 3"):
         assert not SECRET.search(text), text  # an all-numeric value is telemetry
+    assert SECRET.search("pass" + "word=hunter2hunter2"), "the filter itself"
+    import io, contextlib
+    for args in (["noul", "Does pass" + "word=hunter2hunter2 work?"], ["choice", "ok?", "-o", "a=api_" + "key=abcdefgh12345", "-o", "b=fine"], ["score", "ok?", "-l", "low", "-l", "secret" + "=hunter2hunter2"]):
+        sys.stdin = io.StringIO("item\n")
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                main(args)
+        except SystemExit as e:
+            assert e.code == 2 and "credential" in err.getvalue(), (args, err.getvalue())  # refused for the credential, before any request
+        else:
+            raise AssertionError(f"a credential in the question, an option or a level must stop the request: {args}")
     for text in ("refresh_" + "token=\"12345678,abcdefgh\"", "tok" + "en=12345678;abcdefgh",
                  '{"refresh_' + 'token":"12345678[abcdefghijklmnop]"}', 'REFRESH_' + 'TOKEN=12345678"abcdefghijklmnop"', "access_" + "token=1234567890"):
         assert SECRET.search(text), text  # a comma or semicolon INSIDE the value does not make it a count

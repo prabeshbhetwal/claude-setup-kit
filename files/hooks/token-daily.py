@@ -32,18 +32,20 @@ def scan(day):
     days = {day: defaultdict(int), day - timedelta(days=7): defaultdict(int)}
     by_type = defaultdict(int)          # requests on `day` from sessions started after the trim, per stratum
     firsts = defaultdict(list)          # first-request context of every session started after the trim
+    seen = set()                        # message ids already counted from other files (resumed or forked sessions)
     floor = (day - timedelta(days=8)).timestamp()
     for kind, pattern in (("main", "/*/*.jsonl"), ("sub", "/*/*/subagents/*.jsonl")):
         for f in glob.glob(TC.P + pattern):
             if os.path.getmtime(f) < min(floor, TC.AFTER[0].timestamp()):
                 continue
-            reqs = TC.requests(f)
-            if not reqs:
+            whole = TC.requests(f)  # the session's own first request, even when an earlier file holds a copy of it
+            if not whole:
                 continue
-            key = (kind, reqs[0][3], TC.fam(reqs[0][1]))
-            post = reqs[0][0] >= TC.AFTER[0]
+            key = (kind, whole[0][3], TC.fam(whole[0][1]))
+            post = whole[0][0] >= TC.AFTER[0]
             if post:
-                firsts[key].append(TC.ctx(reqs[0][2]))
+                firsts[key].append(TC.ctx(whole[0][2]))
+            reqs = TC.requests(f, seen)  # usage totals: each message once across all files
             for t, _, u, _ in reqs:
                 d = days.get(t.replace(hour=0, minute=0, second=0, microsecond=0))
                 if d is None:
@@ -111,6 +113,13 @@ def selftest():
     text = render(day, days, est)
     assert "-10%" in text and "10.0% of the 1.0k" in text, text
     assert saving({key: 10}, {key: [90] * 2}, [])[1] == 0  # too few sessions: no estimate
+    import tempfile, json, glob as _g  # a resumed session's transcript repeats message m1: the daily total counts it once
+    d = tempfile.mkdtemp()
+    for name in ("a", "b"):
+        os.makedirs(os.path.join(d, name))
+        open(os.path.join(d, name, "s.jsonl"), "w").write(json.dumps({"type": "assistant", "timestamp": "2026-11-20T01:00:00Z", "message": {"id": "m1", "model": "claude-opus-5", "usage": {"input_tokens": 7}}}) + "\n")
+    TC.P = d
+    assert scan(datetime(2026, 11, 20))[0][datetime(2026, 11, 20)]["tokens"] == 7, "a copied message must count once"
     print("selftest ok")
 
 

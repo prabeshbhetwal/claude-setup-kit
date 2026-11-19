@@ -79,9 +79,9 @@ def remove(settings: dict, fragment: dict, components: list) -> list:
     for comp in components:
         for h in fragment.get(comp, {}).get("hooks", []):
             event = h["event"]
-            match = h.get("match", h["command"])
+            exact = h["command"].replace("__RTK__", os.environ.get("KIT_RTK") or "rtk")
             for g in hooks.get(event, []):
-                keep = [x for x in g.get("hooks", []) if match not in x.get("command", "")]
+                keep = [x for x in g.get("hooks", []) if x.get("command", "") != exact]  # exact: my-wrapper jev-gate is yours
                 if len(keep) != len(g.get("hooks", [])):
                     changes.append(f"removed hook {event}: {h['command']}")
                     g["hooks"] = keep
@@ -109,6 +109,16 @@ def redact(x, key=""):
     return x
 
 
+def unique_backup(path: str) -> str:
+    """SETTINGS.bak-kit-<time>, with -2, -3 ... when one exists: the pre-install copy is never replaced by a later one."""
+    base, n = f"{path}.bak-kit-{time.strftime('%Y%m%d-%H%M%S')}", 1
+    name = base
+    while os.path.exists(name):
+        n += 1
+        name = f"{base}-{n}"
+    return name
+
+
 def show_diff(before: dict, after: dict, path: str) -> None:
     a, b = (json.dumps(redact(x), indent=2).splitlines() for x in (before, after))
     for line in difflib.unified_diff(a, b, f"{path} (now)", f"{path} (after)", lineterm="", n=2):
@@ -129,7 +139,7 @@ def main(path: str, frag_path: str, components: list, mode: str = "add") -> None
     if mode == "dry-run":
         return
     if os.path.exists(path):
-        shutil.copy2(path, f"{path}.bak-kit-{time.strftime('%Y%m%d-%H%M%S')}")
+        shutil.copy2(path, unique_backup(path))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
     with os.fdopen(fd, "w") as f:
@@ -168,8 +178,8 @@ def selftest() -> None:
     assert s3["sandbox"] == {"enabled": False}, "an existing sandbox choice must be kept"
     assert merge(s3, f3, ["g"]) == [], "deny merge must be idempotent"
     r = {"a": {"hooks": [{"event": "Stop", "type": "command", "command": "x", "match": "x"}]}}
-    s5 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}, {"type": "command", "command": "x"}]}]}}
-    assert len(remove(s5, r, ["a"])) == 1 and s5["hooks"]["Stop"][0]["hooks"] == [{"type": "command", "command": "mine"}], s5
+    s5 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}, {"type": "command", "command": "x"}, {"type": "command", "command": "my-wrapper x --safe"}]}]}}
+    assert len(remove(s5, r, ["a"])) == 1 and s5["hooks"]["Stop"][0]["hooks"] == [{"type": "command", "command": "mine"}, {"type": "command", "command": "my-wrapper x --safe"}], s5
     assert remove(s5, r, ["a"]) == [], "removing twice changes nothing"
     s6 = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}, "env": {"K": "1"}}
     remove(s6, r, ["a"])

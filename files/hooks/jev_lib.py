@@ -43,10 +43,12 @@ def policy() -> dict:
     try:
         return {**DEFAULTS, **json.loads(POLICY.read_text())}
     except (OSError, ValueError):
-        return dict(DEFAULTS)
+        return {**DEFAULTS, "unreadable": True}  # consent is recorded there: without it, optional sites stay off
 
 
 def _allowed(pol: dict, cwd: str, site: str = "") -> bool:
+    if pol.get("unreadable") and site not in ("", "cli"):
+        return False  # policy.json missing or corrupt: never send for a hook or plugin on a guess
     return pol["enabled"] and site not in pol.get("sites_off", []) and not skipped(pol, cwd)
 
 
