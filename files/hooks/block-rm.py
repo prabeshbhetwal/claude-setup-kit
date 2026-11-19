@@ -34,6 +34,8 @@ def targets(segment):
         words = shlex.split(segment)
     except ValueError:
         return None  # unparseable quoting → treat as unsafe
+    if any(w.startswith("-") and UNRESOLVED.search(w) for w in words[1:]):
+        return None  # -f`printf ...`: the shell turns an "option" into more targets
     return [w for w in words[1:] if not w.startswith("-")]
 
 
@@ -133,6 +135,7 @@ def test():
     assert not blocked(f"rm {d}/plain.txt")
     assert blocked("rm -rf /tmp/build-`id -u` /etc/project"), "a backtick must not hide the targets after it"
     assert blocked("rm -rf /tmp/{a,b} /etc/x")
+    assert blocked("rm -f`printf${IFS}'v /etc/project'` /tmp/x"), "an expansion inside an option can add targets"
     assert blocked("r''m important.txt") and blocked('"r"m x') and blocked("r\\m x") and blocked("'rm' x")
     assert not blocked("echo 'it''s fine'") and not blocked('git commit -m "tidy up"')
     print("block-rm self-check: ok")

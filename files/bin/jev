@@ -56,10 +56,11 @@ SECRET = re.compile(
     r"|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bnpm_[A-Za-z0-9]{30,}|xox[abpr]-[A-Za-z0-9-]{10,}"
     r"|(?i:\bbearer\s+\S{20,})|://[^/\s:@]+:[^/\s@]+@"  # Authorization header; URL user:password@
     r"|(?i:\baws.{0,30}?[\"'\s:=]+)(?=[A-Za-z0-9/+]*[A-Z])(?=[A-Za-z0-9/+]*[a-z])[A-Za-z0-9/+]{40}\b"  # AWS secret access key near an aws label
-    # name containing secret/password/api key, bare or quoted (JSON), then any value of 8+ (a numeric one is still a credential)
-    r"|(?i:\b\w*?(?:password|passwd|secret|api[_-]?key)\w*[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
-    # a name containing "token" is a credential with any value of 8+, unless the name is a count (max_tokens, token_count)
-    r"|(?i:\b(?!\w*(?:tokens|token_counts?)[\"']?\s*[:=])\w*?token\w*[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
+    # a credential name (keyword + up to 40 name characters), bare or quoted (JSON), then any value of 8+; the keyword is found
+    # directly, never behind a leading \w*, so long text is scanned in linear time
+    r"|(?i:(?:password|passwd|secret|api[_-]?key)\w{0,40}[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
+    # "token": a count (max_tokens, token_count) with a plain numeric value is telemetry; anything else of 8+ is a credential
+    r"|(?i:token(?!(?:s|_counts?)[\"']?\s*[:=]\s*[\"']?[\d.]+[\"']?(?:[,;)}\]\s]|$))\w{0,40}[\"']?\s*[:=]\s*[\"']?[^\s\"']{8,})"
 )
 
 
@@ -289,8 +290,11 @@ def offline_test() -> None:
         assert not SECRET.search(text), text
     import time as _t
     t0 = _t.perf_counter()
-    SECRET.search("a" * 40000 + " " + "Q" * 40000)
+    for blob in ("a" * 40000 + " " + "Q" * 40000, "token" * 6400, "password" * 6400, "secret_" * 6400):
+        SECRET.search(blob)
     assert _t.perf_counter() - t0 < 0.5, "the filter must scan long text in linear time"
+    assert SECRET.search("ACCESS_" + "TOKENS=synthetic-example-123") and SECRET.search("refresh_" + "tokens: opaque-credential-9")
+    assert not SECRET.search('"total_tokens":12345678,"output_tokens":10')
     print("jev offline test ok")
 
 

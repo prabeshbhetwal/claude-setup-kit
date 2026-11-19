@@ -43,9 +43,9 @@ def scan(day):
                 continue
             key = (kind, whole[0][3], TC.fam(whole[0][1]))
             post = whole[0][0] >= TC.AFTER[0]
-            if post:
-                firsts[key].append(TC.ctx(whole[0][2]))
             reqs = TC.requests(f, seen)  # usage totals: each message once across all files
+            if post and reqs:  # a copy that adds no new request is not a second session
+                firsts[key].append(TC.ctx(whole[0][2]))
             for t, _, u, _ in reqs:
                 d = days.get(t.replace(hour=0, minute=0, second=0, microsecond=0))
                 if d is None:

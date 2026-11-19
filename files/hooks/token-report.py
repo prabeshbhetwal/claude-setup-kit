@@ -117,9 +117,9 @@ def scan(start, end):
                 continue
             key = (kind, whole[0][3], TC.fam(whole[0][1]))
             post = whole[0][0] >= TC.AFTER[0]
-            if post:
-                firsts[key].append(TC.ctx(whole[0][2]))
             reqs = TC.requests(f, seen)  # usage totals: each message once across all files
+            if post and reqs:  # a copy that adds no new request is not a second session
+                firsts[key].append(TC.ctx(whole[0][2]))
             for t, model, u, _ in reqs:
                 if not start <= t < end:
                     continue
@@ -255,7 +255,8 @@ def selftest():
         for name in ("a", "b"):
             os.makedirs(os.path.join(d, name))
             open(os.path.join(d, name, "s.jsonl"), "w").write(json.dumps({"type": "assistant", "timestamp": "2026-11-10T01:00:00Z", "message": {"id": "m1", "usage": {"input_tokens": 7}}}) + "\n")
-        assert scan(datetime(2026, 11, 9), datetime(2026, 11, 16))[0]["tokens"] == 7
+        got = scan(datetime(2026, 11, 9), datetime(2026, 11, 16))
+        assert got[0]["tokens"] == 7 and sum(len(v) for v in got[3].values()) <= 1, "a copied transcript is not a second sample"
     print("selftest ok")
 
 

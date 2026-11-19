@@ -167,7 +167,7 @@ const NAMED_TIER = new RegExp(
 const LEADING_TIER = new RegExp(`^\\s*@?${TIER_WORD}\\s*[:,]\\s`, 'i')
 const ANY_TIER = new RegExp(`\\b${TIER_WORD}\\b`, 'gi')
 const COMPARING = /\b(?:compare|compared|comparing|versus|vs\.?)\b/i // a description of models, not an instruction
-const NEGATED = /\b(?:don['’]?t|do not|never|not|no|avoid|stop|instead of|rather than)(?:\s+ever)?(?:\s+(?:with|using|on|via|to))?\s*$/i
+const NEGATED = /\b(?:don['’]?t|do not|never|not|no|avoid|stop|instead of|rather than)(?:\s+ever)?(?:\s+(?:with|using|use|on|via|to))?\s*$/i
 
 /**
  * The tier one part of a prompt directs, adding every negated tier to `negated`. A bare
@@ -188,7 +188,8 @@ function namedTier(part: string, negated: Set<string>): string | undefined {
     }
     const isBare = /^(?:with|via|on)$/i.test(m[1] ?? '')
     const at = m.index ?? 0
-    const sentence = part.slice(part.lastIndexOf('.', at) + 1, (part.indexOf('.', at) + 1 || part.length + 1) - 1)
+    const end = /[.!?](?=\s|$)/.exec(part.slice(at))
+    const sentence = part.slice(([...part.slice(0, at).matchAll(/[.!?](?=\s|$)/g)].pop()?.index ?? -1) + 1, end ? at + end.index : part.length)
     const rivals = new Set([...sentence.matchAll(ANY_TIER)].filter(x => !NEGATED.test(sentence.slice(0, x.index))).map(x => (x[1] ?? '').toLowerCase()))
     if (isBare && (rivals.size > 1 || COMPARING.test(sentence) || /^[^.!\n]*\?/.test(part.slice((m.index ?? 0) + m[0].length)))) continue
     pick ??= tier
