@@ -458,13 +458,13 @@ if has measure; then
   python3 "$CL/hooks/token-report.py" --set "${REPORT:-month}" >/dev/null && ok "token report: ${REPORT:-month} (change any time: python3 ~/.claude/hooks/token-report.py --set week|fortnight|month|off)"
   # A daily 09:00 job; the script writes a report only when a chosen period has finished and has none yet,
   # so a Mac that was asleep catches up at the next run. No Claude tokens.
-  LA="$HOME/Library/LaunchAgents"; OLD="$LA/com.claude-setup-kit.token-monthly.plist"
+  LA="$HOME/Library/LaunchAgents"; mkdir -p "$LA"; OLD="$LA/com.claude-setup-kit.token-monthly.plist"
   if [ -f "$OLD" ]; then  # earlier kit versions: monthly job under another name
     [ "$HOME" = "$(eval echo "~$(id -un)")" ] && launchctl bootout "gui/$(id -u)/com.claude-setup-kit.token-monthly" >/dev/null 2>&1
     mv "$OLD" "$OLD.bak-kit-$TS" && ok "old monthly job replaced (kept as $(short "$OLD").bak-kit-$TS)"
   fi
   if [ "$DO_SCHED" = 0 ]; then info "token report off: its daily job is not scheduled (run it by hand: python3 ~/.claude/hooks/token-report.py)"; else
-  LBL=com.claude-setup-kit.token-report; PL="$LA/$LBL.plist"; mkdir -p "$LA"
+  LBL=com.claude-setup-kit.token-report; PL="$LA/$LBL.plist"
   cat > "$PL.tmp" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
