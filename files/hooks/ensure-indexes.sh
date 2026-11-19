@@ -35,7 +35,7 @@ r=$(git rev-parse --show-toplevel 2>/dev/null) || {
 # Both indexes only pay off on real code. Below this many tracked source files,
 # reading files directly is cheaper than the index (and its per-prompt context).
 MIN_SOURCE_FILES=10
-n=$(git -C "$r" ls-files | grep -cE '\.(swift|py|ts|tsx|js|jsx|mjs|go|rs|java|kt|rb|c|cc|cpp|h|hpp|m|mm|cs|php|scala|sh|sql|vue|svelte|dart|lua|zig)$')
+n=$(git -c core.fsmonitor=false -C "$r" ls-files | grep -cE '\.(swift|py|ts|tsx|js|jsx|mjs|go|rs|java|kt|rb|c|cc|cpp|h|hpp|m|mm|cs|php|scala|sh|sql|vue|svelte|dart|lua|zig)$')
 [ "$n" -lt "$MIN_SOURCE_FILES" ] && exit 0
 
 logdir="$HOME/.claude/cache/index-builds"
@@ -94,7 +94,7 @@ for e in sys.stdin.buffer.read().split(b"\0"):
         m = "-"
     print(e.decode("utf-8", "replace"), m)'
 sig=$( { git -C "$r" rev-parse HEAD 2>/dev/null
-         git -C "$r" status --porcelain -uall -z 2>/dev/null | "$PY" -c "$STATPY" "$r"; } | "$SHA" | cut -c1-40 )
+         git -c core.fsmonitor=false -C "$r" status --porcelain -uall -z 2>/dev/null | "$PY" -c "$STATPY" "$r"; } | "$SHA" | cut -c1-40 )
 [ "$sig" = "$(cat "$stamp" 2>/dev/null)" ] && exit 0
 
 # The stamp is written only after both refreshes succeed, so a failed run is retried next time.

@@ -17,6 +17,7 @@ When a check cannot run (not executable, missing interpreter) or is still failin
 end but tells you so with a {"systemMessage": ...} line on stdout: that work is not verified.
 An edit marker older than the turn's prompt (left by an interrupted turn) is dropped, not verified.
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -33,21 +34,39 @@ def allow_file():
     return os.environ.get("KIT_VERIFY_ALLOW") or os.path.expanduser("~/.claude/kit/verify-projects")
 
 
+def fingerprint(project):
+    """sha256 over the check scripts as they are now, so a `git pull` that changes one is not trusted."""
+    h = hashlib.sha256()
+    for name in ("verify", "verify.sh", "lint", "lint.sh"):
+        p = os.path.join(project, ".claude", name)
+        if os.path.isfile(p):
+            h.update(name.encode() + b"\0" + open(p, "rb").read() + b"\0")
+    return h.hexdigest()
+
+
 def allowed():
+    """{project: fingerprint of its scripts when you allowed it}; a line without one (older file) matches nothing."""
+    out = {}
     try:
-        return {line.strip() for line in open(allow_file()) if line.strip()}
+        for line in open(allow_file()):
+            path, _, fp = line.rstrip("\n").partition("\t")
+            if path.strip():
+                out[path.strip()] = fp.strip()
     except OSError:
-        return set()
+        pass
+    return out
 
 
-def allow(d):
+def allow(d, quiet=False):
     d = os.path.realpath(d)
-    if d in allowed():
-        return print(f"already allowed: {d}")
+    entries = allowed()
+    old, entries[d] = entries.get(d), fingerprint(d)
     os.makedirs(os.path.dirname(allow_file()), exist_ok=True)
-    with open(allow_file(), "a") as f:
-        f.write(d + "\n")
-    print(f"done checks allowed in {d} (its .claude/verify and .claude/lint will run)")
+    with open(allow_file(), "w") as f:
+        f.writelines(f"{p}\t{fp}\n" for p, fp in sorted(entries.items()))
+    if not quiet:
+        print(f"done checks {'unchanged' if old == entries[d] else 'allowed'} in {d} "
+              "(its .claude/verify and .claude/lint will run; allow again after you change them)")
 
 
 def find(project, name):
@@ -103,13 +122,18 @@ def prompt_time(transcript):
 
 def main(mode, data, state=STATE):
     project = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd()
-    if os.path.realpath(project) not in allowed():
+    rp = os.path.realpath(project)
+    entries = allowed()
+    if rp not in entries:
         return 0  # not allowed: never run a project's own scripts unasked
+    trusted = entries[rp] == fingerprint(project)  # false once a check script changed after you allowed it
     sid = str(data.get("session_id") or "nosession").replace(os.sep, "_")
     os.makedirs(state, exist_ok=True)
     edited, tries = os.path.join(state, sid + ".edited"), os.path.join(state, sid + ".tries")
     if mode == "edit":
         open(edited, "w").close()
+        if not trusted:
+            return 0
         cmd = find(project, "lint")
         path = (data.get("tool_input") or {}).get("file_path") or ""
         if not cmd or not path:
@@ -126,6 +150,11 @@ def main(mode, data, state=STATE):
             for f in (edited, tries):  # stale: an earlier, interrupted turn edited; this one did not
                 if os.path.exists(f):
                     os.remove(f)
+            return 0
+        if not trusted:
+            os.remove(edited)
+            note(f"the check scripts in {rp} changed since you allowed them, so they did not run; this work is NOT "
+                 f"verified. Read them, then run: verify-done.py allow {rp}")
             return 0
         n = int(open(tries).read() or 0) if os.path.exists(tries) else 0
         if data.get("stop_hook_active") and n >= MAX_RETRIES:
@@ -172,18 +201,24 @@ def selftest():
     v = os.path.join(d, ".claude", "verify.sh")
     open(v, "w").write("echo boom; exit 1\n")
     main("edit", ev, st)
+    assert main("stop", ev, st) == 0, "a script changed after allow must not run"
+    allow(d, True)  # you read it and allowed it again
+    main("edit", ev, st)
     assert main("stop", ev, st) == 2, "failing verify must block"
     for _ in range(MAX_RETRIES - 1):
         assert main("stop", {**ev, "stop_hook_active": True}, st) == 2
     assert main("stop", {**ev, "stop_hook_active": True}, st) == 0, "retry cap must release"
     open(v, "w").write("exit 0\n")
+    allow(d, True)
     main("edit", ev, st)
     assert main("stop", ev, st) == 0 and not os.listdir(st), "passing verify clears state"
     open(os.path.join(d, ".claude", "lint.sh"), "w").write('case "$1" in *bad*) echo lint-err; exit 1;; esac\n')
+    allow(d, True)
     assert main("edit", {**ev, "tool_input": {"file_path": "bad.py"}}, st) == 2
     assert main("edit", {**ev, "tool_input": {"file_path": "ok.py"}}, st) == 0
     # an interrupted turn left the marker; the next turn (prompt typed later, no edits) must not verify
     open(v, "w").write("echo boom; exit 1\n")
+    allow(d, True)
     tr = os.path.join(d, "t.jsonl")
     line = lambda ts: json.dumps({"type": "user", "timestamp": ts, "message": {"role": "user", "content": "next task"}})
     main("edit", ev, st)
@@ -204,6 +239,7 @@ def selftest():
     vp = os.path.join(d, ".claude", "verify")
     os.remove(v)
     open(vp, "w").write("exit 0\n")  # exists, not executable, no .sh name
+    allow(d, True)
     main("edit", ev, st)
     rc, out = said({})
     assert rc == 0 and "not executable" in json.loads(out)["systemMessage"], out
@@ -211,8 +247,13 @@ def selftest():
     open(vp, "w").write("#!/no/such/interpreter\nexit 0\n")
     main("edit", ev, st)
     rc, out = said({})
+    assert rc == 0 and "changed since you allowed" in json.loads(out)["systemMessage"], out
+    allow(d, True)
+    main("edit", ev, st)
+    rc, out = said({})
     assert rc == 0 and "could not run" in json.loads(out)["systemMessage"], out
     open(vp, "w").write("#!/bin/sh\nexit 1\n")
+    allow(d, True)
     for f in os.listdir(st):  # fresh retry count
         os.remove(os.path.join(st, f))
     main("edit", ev, st)

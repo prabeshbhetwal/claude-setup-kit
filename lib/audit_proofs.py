@@ -8,9 +8,10 @@
 3. Each per-prompt and per-command hook finishes quickly and cleanly (timed; slow or crashing ones fail).
 4. Every script's own self-check passes under Apple's python3 3.9.
 5. An upgrade without the Jev part turns off Jev sites the user was never asked about.
+6. Installer downloads are pinned (version or checksummed commit); one that fails its checksum never runs.
 Everything runs in a throwaway HOME under $TMPDIR; the real `claude`, settings and launchd are never touched.
 """
-import json, os, shutil, subprocess, sys, tempfile, time
+import json, os, re, shutil, subprocess, sys, tempfile, time
 
 KIT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 bad = []
@@ -151,6 +152,20 @@ run(home, ["--only", "safety", "--yes"], {"FAKE_LOG": log})
 off = set(json.load(open(os.path.join(home, ".claude/jev/policy.json"))).get("sites_off", []))
 if not {"codegraph-gate", "model-pilot", "jev-gate"} <= off:
     bad.append(f"consent: an upgrade without the Jev part left never-asked sites on: sites_off={sorted(off)}")
+
+# 6. installer downloads are pinned: nothing floats on latest/HEAD, and a download that does not match its checksum never runs
+inst = [l for l in open(os.path.join(KIT, "install.sh")).read().splitlines() if not l.lstrip().startswith("#")]
+loose = [l.strip() for l in inst if "curl " in l or (re.search(r"npm install|pipx install|uv tool install|npx --yes", l) and "$PIN_" not in l)]
+if loose:
+    bad.append(f"pins: install.sh has an unpinned download: {loose[:3]}")
+evil = os.path.join(T, "evil.sh")
+open(evil, "w").write(f"touch {T}/pwned\n")
+r = subprocess.run(["bash", os.path.join(KIT, "lib/run-pinned.sh"), "rtk", "sh"], capture_output=True, text=True, timeout=60,
+                   env={"PATH": "/usr/bin:/bin", "TMPDIR": T, "KIT_TESTING": "1", "KIT_PIN_URL": "file://" + evil})
+if r.returncode == 0 or "NOT RUN" not in r.stderr or os.path.exists(os.path.join(T, "pwned")):
+    bad.append(f"pins: a download that fails its checksum must not run (exit {r.returncode}): {r.stderr[-200:]}")
+if "unset KIT_CMD_CLT" not in open(os.path.join(KIT, "install.sh")).read():
+    bad.append("pins: the KIT_CMD_* overrides must be ignored unless KIT_TESTING=1")
 
 shutil.rmtree(T, ignore_errors=True)  # only the throwaway folder this run made
 for b in bad:
