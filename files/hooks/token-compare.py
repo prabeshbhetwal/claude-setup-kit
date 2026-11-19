@@ -175,7 +175,8 @@ def report(rows, now=None):
     ci_lo, ci_hi = total_range(strata)
     L += ["", f"**Estimated saving in the after week: {fm(lo_total)} to {fm(hi_total)} tokens**, covering "
               f"{100 * covered / after_reqs:.0f}% of after-week requests. The median drop alone is uncertain: resampling every "
-              f"row together, the 95% range is {fm(ci_lo)} to {fm(ci_hi)} tokens." if after_reqs else
+              f"row together, the 95% range is {fm(ci_lo)} to {fm(ci_hi)} tokens." if strata else
+          "**Not enough sessions to compare yet** (each row needs " f"{MIN_N} on both sides)." if after_reqs else
           "**No after-week sessions yet.** The table fills in from the day after the change.",
           "A negative number means the first request got larger. Each row's estimate is its drop times its own request count,"
           " using the median drop and the low-end (p10) drop as the two ends of the range.", "",
