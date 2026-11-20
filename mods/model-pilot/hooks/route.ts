@@ -9,6 +9,7 @@ import { explicitChoice, isFollowUp, rulesFallback, rulesVerdict } from './judge
 import { decide, handoffBand, handoffThreshold, placeTip, tierOf, TIERS } from './policy'
 import type { Decision, Effort, JudgeInput, Tier, Verdict, Warm } from './policy'
 import { chainOf } from './options'
+import { mergePings, readPings } from './pings'
 import type { Options } from './options'
 import { isPrivateHere } from './privacy'
 import { FAILED_CHECK } from './steer'
@@ -45,6 +46,8 @@ export type Rec = {
   warmAtStart: Tier[]
   contextTokens: number
   ran?: string
+  /** When the turn's last answered request went out: the API restarts the cache's timer then, not when the reply ends. */
+  sentAt?: number
   isFailed?: boolean
 }
 
@@ -177,6 +180,8 @@ export async function settle($: EngineInterface, o: Options, f: PilotFlags, rec:
   const menuTier = tierOf(e.model) ?? 'sonnet'
   const { verdict, source } = await verdictFor($, o, rec, menuTier)
   rec.verdictEffort = verdict.effort
+  // Cache Keeper's pings keep a model's cache warm past the pilot's own last request to it.
+  warm = mergePings(warm, await readPings($, (await $.env.get('HOME')) ?? '', await $.session.id()))
   const cache = { contextTokens: (await $.session.usage()).context.tokens ?? 0, warm, now: await $.clock.now(), cacheTtlMs: CACHE_TTL_MS }
   rec.warmAtStart = TIERS.filter(t => { const w = warm[t]; return w !== undefined && cache.now - w.at < CACHE_TTL_MS })
   const decision = decide({
@@ -198,8 +203,9 @@ export async function settle($: EngineInterface, o: Options, f: PilotFlags, rec:
 }
 
 /** After each model request of the turn: what it cost and which model answered. */
-export function record(rec: Rec, usage: (Usage & { model?: string }) | null | undefined): void {
+export function record(rec: Rec, usage: (Usage & { model?: string }) | null | undefined, sentAt?: number): void {
   if (!usage) return
+  if (sentAt !== undefined) rec.sentAt = sentAt
   rec.usage = addUsage(rec.usage, usage)
   if (rec.first) rec.costs = addCosts(rec.costs, usage)
   else rec.first = usage
@@ -221,7 +227,7 @@ export async function finish($: EngineInterface, o: Options, turnId: string, rec
   const isMismatch = !o.isShadow && (rec.isFailed === true || (ranModel !== null && d.tier !== undefined && tierOf(ranModel) !== d.tier))
 
   if (ranModel !== null) {
-    warm = { ...warm, [ranTier]: { at: now, tokens: rec.contextTokens } }
+    warm = { ...warm, [ranTier]: { at: rec.sentAt ?? now, tokens: rec.contextTokens } }
     lowerStreak = TIERS.indexOf(d.required) < TIERS.indexOf(ranTier) ? lowerStreak + 1 : 0
   }
   if (rec.verdictEffort) last = { required: d.required, effort: rec.verdictEffort }
