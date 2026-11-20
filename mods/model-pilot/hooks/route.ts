@@ -181,7 +181,7 @@ export async function settle($: EngineInterface, o: Options, f: PilotFlags, rec:
   const { verdict, source } = await verdictFor($, o, rec, menuTier)
   rec.verdictEffort = verdict.effort
   // Cache Keeper's pings keep a model's cache warm past the pilot's own last request to it.
-  warm = mergePings(warm, await readPings($, $.plugin.root.split('/.claude/')[0] ?? '', await $.session.id()))
+  warm = mergePings(warm, await readPings($, (await $.env.get('HOME')) ?? '', await $.session.id()))
   const cache = { contextTokens: (await $.session.usage()).context.tokens ?? 0, warm, now: await $.clock.now(), cacheTtlMs: CACHE_TTL_MS }
   rec.warmAtStart = TIERS.filter(t => { const w = warm[t]; return w !== undefined && cache.now - w.at < CACHE_TTL_MS })
   const decision = decide({

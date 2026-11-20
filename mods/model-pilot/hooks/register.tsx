@@ -84,7 +84,16 @@ export const register: Register = (on, options) => {
     const subEffort = e.agentId === undefined ? undefined : agentEffort.get(e.agentId)
     if (subEffort !== undefined && subEffort !== e.effort) return yield* next({ ...e, effort: subEffort })
     const rec = e.agentId === undefined ? turnOf(e.turnId) : undefined
-    if (!rec || rec.isFailed) return yield* next(e)
+    if (!rec) return yield* next(e)
+    // An unrouted request of a turn whose pick failed: sent as asked, still recorded for the cache timer and cost row.
+    const passThrough = async function* () {
+      const sentAt = await $.clock.now()
+      const out = yield* next(e)
+      record(rec, out.usage, sentAt)
+      return out
+    }
+    // After a failed pick the request passes through unrouted, but its send time still dates the cache.
+    if (rec.isFailed) return yield* passThrough()
     if (!rec.decision) {
       try {
         const f = await read($, flags)
@@ -97,7 +106,7 @@ export const register: Register = (on, options) => {
         }
       } catch {
         rec.isFailed = true
-        return yield* next(e)
+        return yield* passThrough()
       }
     }
     // The same pick for every request of the turn: the model never changes mid-turn.
