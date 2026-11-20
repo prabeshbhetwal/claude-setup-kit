@@ -102,16 +102,18 @@ export const register: Register = (on, options) => {
     }
     // The same pick for every request of the turn: the model never changes mid-turn.
     const d = rec.decision
+    // Taken after the pilot's own judging: the request goes out now, and its cache timer starts.
+    const sentAt = await $.clock.now()
     if (o.isShadow) {
       const out = yield* next(e)
-      record(rec, out.usage)
+      record(rec, out.usage, sentAt)
       return out
     }
     const model = d.tier && tierOf(e.model) !== d.tier ? d.tier : e.model
     const effort = d.effort && d.effort !== e.effort ? d.effort : e.effort
     if (model === e.model && effort === e.effort) {
       const out = yield* next(e)
-      record(rec, out.usage)
+      record(rec, out.usage, sentAt)
       return out
     }
     const stream = next({ ...e, model, effort })
@@ -120,7 +122,7 @@ export const register: Register = (on, options) => {
       for (;;) {
         const piece = await stream.next()
         if (piece.done) {
-          record(rec, piece.value.usage)
+          record(rec, piece.value.usage, sentAt)
           return piece.value
         }
         hasYielded = true
@@ -131,7 +133,7 @@ export const register: Register = (on, options) => {
       // The pick could not be sent (a model this account lacks, say): once, as the menu has it.
       rec.isFailed = true
       const out = yield* next(e)
-      record(rec, out.usage)
+      record(rec, out.usage, sentAt)
       return out
     }
   })
